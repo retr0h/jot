@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "jot": {
+      "command": "go",
+      "args": ["run", "github.com/retr0h/jot", "mcp", "start"],
+      "env": {}
+    }
+  }
+}
