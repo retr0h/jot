@@ -28,6 +28,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
+	"github.com/retr0h/jot/internal/jot"
 )
 
 // defaultConfig is the template written to jot.yaml on first init.
@@ -79,14 +80,11 @@ var initCmd = &cobra.Command{
 		}
 
 		// 4. Open / create the SQLite database.
-		//    TODO: replace with jot.OpenStore(DBPath()) once the store
-		//    package exists under internal/jot/.
-		//
-		//    For now just ensure the parent directory is in place so the
-		//    DB path is valid when the store is wired up.
-		if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
-			return fmt.Errorf("create db parent dir for %q: %w", dbPath, err)
+		store, err := jot.OpenStore(dbPath)
+		if err != nil {
+			return fmt.Errorf("init database %q: %w", dbPath, err)
 		}
+		store.Close()
 		fmt.Println(cli.Success(out, "database:    "+cli.Accent(out, dbPath)))
 
 		return nil
