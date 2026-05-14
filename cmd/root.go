@@ -1,0 +1,173 @@
+// Copyright (c) 2026 John Dewey
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+
+// Package cmd contains the jot cobra command tree.
+package cmd
+
+import (
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/lmittmann/tint"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"golang.org/x/term"
+
+	"github.com/retr0h/jot/internal/cli"
+)
+
+// logger is the package-level slog logger, populated from initLogger
+// after cobra parses persistent flags. CLI subcommands log through it
+// directly.
+var (
+	logger     = slog.New(slog.NewTextHandler(os.Stderr, nil))
+	jsonOutput bool
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "jot",
+	Short: "Terminal notes + todos with linked tasks",
+	RunE: func(c *cobra.Command, _ []string) error {
+		return c.Help()
+	},
+}
+
+// Execute runs the root command; invoked by main. SilenceUsage drops
+// the help-text dump on runtime failures where it's just noise. Cobra
+// already prints "Error: <err>" on its own.
+func Execute() {
+	rootCmd.SilenceUsage = true
+
+	// Wrap cobra's default help to print the themed banner above it.
+	// SetHelpFunc fires for `jot --help` and for the bare-command
+	// fallback alike, so the banner shows in both paths without
+	// duplicating itself.
+	defaultHelp := rootCmd.HelpFunc()
+	rootCmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		if c == rootCmd {
+			out := c.OutOrStdout()
+			_, _ = fmt.Fprintln(out)
+			_, _ = fmt.Fprint(out, cli.Banner(out))
+			_, _ = fmt.Fprintln(out)
+		}
+		defaultHelp(c, args)
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+// ConfigDir returns the resolved jot config directory (from --config or
+// the JOT_CONFIG env var, defaulting to ~/.config/jot).
+func ConfigDir() string {
+	return viper.GetString("config")
+}
+
+// NotesDir returns the directory where jot stores note files. Overridden
+// by the notes_dir config key or JOT_NOTES_DIR env var; defaults to
+// <ConfigDir>/notes.
+func NotesDir() string {
+	if d := viper.GetString("notes_dir"); d != "" {
+		return d
+	}
+	return filepath.Join(ConfigDir(), "notes")
+}
+
+// DBPath returns the path to the jot SQLite database. Overridden by the
+// db_path config key or JOT_DB_PATH env var; defaults to
+// <ConfigDir>/jot.db.
+func DBPath() string {
+	if p := viper.GetString("db_path"); p != "" {
+		return p
+	}
+	return filepath.Join(ConfigDir(), "jot.db")
+}
+
+// EditorPref returns the user's preferred editor from configuration.
+func EditorPref() string {
+	return viper.GetString("editor")
+}
+
+func init() {
+	cobra.OnInitialize(initConfig, initLogger)
+
+	home, _ := os.UserHomeDir()
+	rootCmd.PersistentFlags().String(
+		"config", filepath.Join(home, ".config", "jot"),
+		"config directory (default ~/.config/jot)",
+	)
+	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
+	rootCmd.PersistentFlags().BoolVarP(&jsonOutput, "json", "j", false, "emit logs as JSON")
+
+	_ = viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
+	_ = viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
+}
+
+// initConfig wires viper — env-var overrides take effect through a
+// JOT_… prefix with dots replaced by underscores, so e.g.
+// JOT_NOTES_DIR overrides the notes_dir default.
+func initConfig() {
+	viper.SetEnvPrefix("jot")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
+	// Load jot.yaml from the config directory when it exists.
+	viper.SetConfigName("jot")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(ConfigDir())
+	_ = viper.ReadInConfig()
+
+	// Defaults — all overridable via config file, env vars, or flags.
+	viper.SetDefault("editor", "")
+	viper.SetDefault("notes_dir", "")
+	viper.SetDefault("db_path", "")
+	viper.SetDefault("git.enabled", false)
+	viper.SetDefault("git.auto_commit", false)
+}
+
+// initLogger swaps the package-level logger to a tint handler with
+// color when stderr is a TTY, plain text otherwise. --json swaps in
+// the slog JSON handler — for log aggregators that prefer structured
+// input. Level follows --debug.
+func initLogger() {
+	level := slog.LevelInfo
+	if viper.GetBool("debug") {
+		level = slog.LevelDebug
+	}
+
+	var handler slog.Handler
+	if jsonOutput {
+		handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	} else {
+		handler = tint.NewHandler(os.Stderr, &tint.Options{
+			Level:      level,
+			TimeFormat: time.Kitchen,
+			NoColor:    !term.IsTerminal(int(os.Stderr.Fd())),
+		})
+	}
+
+	logger = slog.New(handler)
+	slog.SetDefault(logger)
+}
