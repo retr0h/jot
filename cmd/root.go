@@ -29,12 +29,15 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lmittmann/tint"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 
 	"github.com/retr0h/jot/internal/cli"
+	"github.com/retr0h/jot/internal/jot"
+	"github.com/retr0h/jot/internal/tui"
 )
 
 // logger is the package-level slog logger, populated from initLogger
@@ -48,8 +51,17 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "jot",
 	Short: "Terminal notes + todos with linked tasks",
-	RunE: func(c *cobra.Command, _ []string) error {
-		return c.Help()
+	RunE: func(_ *cobra.Command, _ []string) error {
+		store, err := jot.OpenStore(DBPath())
+		if err != nil {
+			return fmt.Errorf("open store: %w", err)
+		}
+		defer store.Close()
+
+		m := tui.New(store, NotesDir())
+		p := tea.NewProgram(m, tea.WithAltScreen())
+		_, err = p.Run()
+		return err
 	},
 }
 
