@@ -28,6 +28,9 @@ import (
 var (
 	bareTaskRe     = regexp.MustCompile(`@task\s+(.+)$`)
 	resolvedTaskRe = regexp.MustCompile(`@task\(([^)]+)\)`)
+	// hashTagInDesc matches a leading #tag token in the bare description so we
+	// can strip inline tags out of the description text.
+	hashTagStripRe = regexp.MustCompile(`\s+#[A-Za-z][A-Za-z0-9_/-]*`)
 )
 
 // RawTask represents a single @task marker extracted from a note.
@@ -35,13 +38,19 @@ type RawTask struct {
 	Description string
 	DueDate     string   // "2026-05-16" or ""
 	DoneDate    string   // "2026-05-14" or ""
-	Labels      []string
-	Line        int  // 1-indexed line number in the note
-	Resolved    bool // true if parsed from @task(...) form
+	Labels      []string // populated from inline #tags on the same line
+	Line        int      // 1-indexed line number in the note
+	Resolved    bool     // true if parsed from @task(...) form
 }
 
 // ParseTasks extracts all @task markers from markdown content.
 // Returns them in document order. Handles both bare and resolved forms.
+//
+// Resolved form: @task(desc | due:X | done:Z) #tag1 #tag2
+//   - Tags are inline #tags on the line OUTSIDE the parens.
+//
+// Bare form: @task desc #tag1 #tag2
+//   - #tags are stripped from the description and stored in Labels.
 func ParseTasks(content string) []RawTask {
 	lines := strings.Split(content, "\n")
 	tasks := make([]RawTask, 0, len(lines))
@@ -54,14 +63,22 @@ func ParseTasks(content string) []RawTask {
 			task := parseResolvedInner(m[1])
 			task.Line = lineNum
 			task.Resolved = true
+			// Inline #tags on the line (outside the parens) augment Labels.
+			lineTags := ParseLineTags(line)
+			task.Labels = append(task.Labels, lineTags...)
 			tasks = append(tasks, task)
 			continue
 		}
 
-		// Try bare form: @task <description>
+		// Try bare form: @task <description> [#tags]
 		if m := bareTaskRe.FindStringSubmatch(line); m != nil {
+			raw := strings.TrimSpace(m[1])
+			tags := ParseLineTags(raw)
+			// Strip #tag tokens from the description.
+			desc := strings.TrimSpace(hashTagStripRe.ReplaceAllString(raw, ""))
 			tasks = append(tasks, RawTask{
-				Description: strings.TrimSpace(m[1]),
+				Description: desc,
+				Labels:      tags,
 				Line:        lineNum,
 				Resolved:    false,
 			})
@@ -72,6 +89,7 @@ func ParseTasks(content string) []RawTask {
 }
 
 // parseResolvedInner parses the inner content of @task(...), splitting on "|".
+// Only due: and done: fields are recognised; tag: is no longer supported.
 func parseResolvedInner(inner string) RawTask {
 	fields := strings.Split(inner, "|")
 	task := RawTask{}
@@ -85,33 +103,40 @@ func parseResolvedInner(inner string) RawTask {
 			task.DueDate = strings.TrimPrefix(field, "due:")
 		case strings.HasPrefix(field, "done:"):
 			task.DoneDate = strings.TrimPrefix(field, "done:")
-		case strings.HasPrefix(field, "label:"):
-			raw := strings.TrimPrefix(field, "label:")
-			task.Labels = strings.Split(raw, ",")
 		}
 	}
 
 	return task
 }
 
-// ResolveLine produces the resolved form: @task(desc | due:X | label:Y | done:Z).
-// Only includes fields that are non-empty. DoneDate from the RawTask is preserved.
-func ResolveLine(task RawTask, due string, labels []string) string {
+// ResolveLine produces the resolved form:
+//
+//	@task(desc | due:X | done:Z) #tag1 #tag2
+//
+// Tags are placed OUTSIDE the parens as inline #tags. Only non-empty fields
+// are included. DoneDate from the RawTask is preserved.
+func ResolveLine(task RawTask, due string, tags []string) string {
 	parts := []string{task.Description}
 
 	if due != "" {
 		parts = append(parts, "due:"+due)
 	}
 
-	if len(labels) > 0 {
-		parts = append(parts, "label:"+strings.Join(labels, ","))
-	}
-
 	if task.DoneDate != "" {
 		parts = append(parts, "done:"+task.DoneDate)
 	}
 
-	return "@task(" + strings.Join(parts, " | ") + ")"
+	result := "@task(" + strings.Join(parts, " | ") + ")"
+
+	if len(tags) > 0 {
+		tagStr := make([]string, len(tags))
+		for i, t := range tags {
+			tagStr[i] = "#" + t
+		}
+		result += " " + strings.Join(tagStr, " ")
+	}
+
+	return result
 }
 
 // DiffTasks compares old and new content, returns added/removed/unchanged tasks.

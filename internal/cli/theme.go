@@ -1,22 +1,22 @@
 // Copyright (c) 2026 John Dewey
-
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to
-// deal in the Software without restriction, including without limitation the
-// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-// sell copies of the Software, and to permit persons to whom the Software is
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-// DEALINGS IN THE SOFTWARE.
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 // Package cli holds CLI-only output helpers — never imported by the
 // running TUI under internal/tui/, only by cmd/.
@@ -69,20 +69,19 @@ var faint = lipgloss.NewStyle().Faint(true)
 
 // ThemeMaxheadroom is jot's default — pulled from the maxheadroom
 // palette also used by tlock and meshx so the family reads as one.
-// mhOrange (#ffb86c) is the primary accent; supporting roles are
+// mhMagenta (#c678dd) is the primary accent; supporting roles are
 // drawn from the same palette where they exist (mhGreen for OK,
 // mhPink for Err, mhCyan for Info). Truecolor (24-bit) so the
-// install banner, the running TUI, and `--help` all paint with the
-// exact same hue.
+// install banner and `--help` all paint with the exact same hue.
 var ThemeMaxheadroom = Theme{
 	Name:      "maxheadroom",
 	Mute:      faint,
-	Accent:    fg("#ffb86c"), // mhOrange
+	Accent:    fg("#c678dd"), // mhMagenta
 	OK:        fg("#50fa7b"), // mhGreen
 	Err:       fg("#ff6ec7"), // mhPink (the in-app alert color)
 	Info:      fg("#00d4ff"), // mhCyan
 	BannerTop: faint,
-	BannerBot: fg("#ffb86c"),
+	BannerBot: fg("#c678dd"), // mhMagenta
 }
 
 var active = &ThemeMaxheadroom
@@ -148,3 +147,12 @@ func Failure(w io.Writer, msg string) string {
 	}
 	return mark + " " + msg
 }
+
+// Overdue returns s in the error/pink color, used for overdue task dates.
+func Overdue(w io.Writer, s string) string { return render(w, active.Err, s) }
+
+// Done returns s in the success/green color, used for completed task markers.
+func Done(w io.Writer, s string) string { return render(w, active.OK, s) }
+
+// Hash returns s rendered in the info/cyan color, used for git commit hashes.
+func Hash(w io.Writer, s string) string { return render(w, active.Info, s) }
