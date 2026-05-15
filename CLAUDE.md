@@ -5,10 +5,12 @@ Architecture intent + standards for Claude Code working in this repo.
 ## Project
 
 **jot** — terminal-first markdown notes + todos with linked tasks. Notes
-are plain `.md` files edited in `$EDITOR` (nvim). `@task` markers create
-linked todos with due dates and labels. SQLite indexes everything; FTS5
-powers search. Sensitive notes encrypt at rest via kvlt (age + SSH keys).
-An MCP server exposes the full surface to LLM agents.
+are plain `.md` files with YAML frontmatter, edited in `$EDITOR` (nvim).
+`@task` markers with `#tags` create linked todos with due dates. `[[slug]]`
+wiki links connect notes. Git backs everything — every save is a commit.
+Sensitive notes encrypt at rest via kvlt (age + SSH keys). An MCP server
+exposes the full surface to LLM agents. No database: files are the source
+of truth.
 
 ## Architecture in one screen
 
@@ -16,21 +18,50 @@ An MCP server exposes the full surface to LLM agents.
 jot (binary)
 ├── cmd/            cobra CLI tree
 ├── internal/
-│   ├── cli/        theme (maxheadroom palette), banner
-│   ├── jot/        store (SQLite), parser (@task), editor, kvlt secure notes
-│   ├── tui/        full-screen bubbletea app (notes list, tasks, preview)
-│   ├── mcp/        MCP server (stdio, meshx pattern)
+│   ├── cli/        theme (maxheadroom palette), banner, output helpers
+│   ├── config/     Config struct, viper mapstructure bindings
+│   ├── gitops/     git integration — commit, log, diff, show
+│   ├── jot/        core domain — parser (@task), editor, slug, date, kvlt
+│   ├── mcp/        MCP server (stdio, go-sdk pattern)
 │   └── version/    build-time identity
+```
+
+Command tree:
+
+```
+jot
+├── init
+├── note
+│   ├── new --title <title> [--secure]
+│   ├── edit --slug <slug>
+│   ├── mv --slug <slug> --title <new-title>
+│   ├── list [--tag X]
+│   └── search --query <query>
+├── task
+│   ├── list [--status X] [--tag X]
+│   ├── done --slug <slug> --desc <desc>
+│   └── due [--period today|week|month]
+├── tag list
+├── git
+│   ├── log [--slug X]
+│   ├── diff [--slug X]
+│   └── show --commit <hash> [--note X]
+└── mcp start
 ```
 
 Key invariants:
 
-- **Markdown is source of truth.** SQLite indexes; `.md` files are canonical.
-- **@task round-trips.** Parser reads both `@task desc` and
-  `@task(desc | due:X | label:Y)` forms — edits in nvim are always valid.
-- **kvlt for secrets.** Secure note bodies live in `.kvlt/secrets/`; SQLite
-  indexes title/labels/tasks only. `github.com/retr0h/kvlt/pkg/kvlt` imported
-  as a library, not shelled out.
+- **Files are source of truth.** No database — `.md` files are canonical.
+- **Git backs everything.** Every write goes through `internal/gitops`
+  which stages and commits. `jot git log/diff/show` surface the history.
+- **@task round-trips.** Parser reads both `@task desc #tag` and
+  `@task(desc | due:X) #tag` forms — edits in nvim are always valid.
+- **[[slug]] links.** Wiki-style links connect notes by slug; obsidian.nvim
+  resolves them. jot does not validate links at write time.
+- **Tags in frontmatter.** Tags are YAML `tags:` arrays. `@task` markers
+  carry `#tag` annotations outside the parentheses. Both are queryable.
+- **Interfaces where consumed.** Define interfaces in the consuming package
+  (MCP `storer`, cobra command seams) not in the providing package.
 
 ## Code standards
 
@@ -47,9 +78,9 @@ Key invariants:
 ## Color palette (Max Headroom)
 
 ```
-#ffb86c  orange    accent, banner
+#c678dd  magenta   accent, banner
 #00d4ff  cyan      info hints
-#c678dd  magenta   (reserved)
+#ffb86c  orange    (reserved)
 #50fa7b  green     success, done tasks
 #e5c07b  yellow    (reserved)
 #ff6ec7  pink      errors, overdue tasks
@@ -68,3 +99,4 @@ go run . --help
 ## Data directory
 
 `~/.config/jot/` by default. Override via `--config` flag or `JOT_CONFIG_DIR` env.
+Notes directory defaults to `<config>/notes`; override via `JOT_NOTES_DIR`.
