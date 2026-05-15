@@ -29,15 +29,13 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lmittmann/tint"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
-	"github.com/retr0h/jot/internal/tui"
+	"github.com/retr0h/jot/internal/config"
 )
 
 // logger is the package-level slog logger, populated from initLogger
@@ -46,23 +44,12 @@ import (
 var (
 	logger     = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	jsonOutput bool
+	appConfig  config.Config
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "jot",
 	Short: "Terminal notes + todos with linked tasks",
-	RunE: func(_ *cobra.Command, _ []string) error {
-		store, err := jot.OpenStore(DBPath())
-		if err != nil {
-			return fmt.Errorf("open store: %w", err)
-		}
-		defer store.Close()
-
-		m := tui.New(store, NotesDir())
-		p := tea.NewProgram(m, tea.WithAltScreen())
-		_, err = p.Run()
-		return err
-	},
 }
 
 // Execute runs the root command; invoked by main. SilenceUsage drops
@@ -107,16 +94,6 @@ func NotesDir() string {
 	return filepath.Join(ConfigDir(), "notes")
 }
 
-// DBPath returns the path to the jot SQLite database. Overridden by the
-// db_path config key or JOT_DB_PATH env var; defaults to
-// <ConfigDir>/jot.db.
-func DBPath() string {
-	if p := viper.GetString("db_path"); p != "" {
-		return p
-	}
-	return filepath.Join(ConfigDir(), "jot.db")
-}
-
 // EditorPref returns the user's preferred editor from configuration.
 func EditorPref() string {
 	return viper.GetString("editor")
@@ -154,9 +131,15 @@ func initConfig() {
 	// Defaults — all overridable via config file, env vars, or flags.
 	viper.SetDefault("editor", "")
 	viper.SetDefault("notes_dir", "")
-	viper.SetDefault("db_path", "")
-	viper.SetDefault("git.enabled", false)
-	viper.SetDefault("git.auto_commit", false)
+
+	// Populate the package-level appConfig for subcommands that prefer
+	// the struct over individual viper lookups.
+	appConfig = config.Config{
+		Config:   ConfigDir(),
+		Editor:   viper.GetString("editor"),
+		NotesDir: NotesDir(),
+		Debug:    viper.GetBool("debug"),
+	}
 }
 
 // initLogger swaps the package-level logger to a tint handler with

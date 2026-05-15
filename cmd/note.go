@@ -21,42 +21,28 @@
 package cmd
 
 import (
-	"fmt"
-	"strconv"
-
 	"github.com/spf13/cobra"
-
-	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
 )
 
-var doneCmd = &cobra.Command{
-	Use:   "done <task-id>",
-	Short: "Mark a task as complete",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(c *cobra.Command, args []string) error {
-		out := c.OutOrStdout()
-
-		id, err := strconv.ParseInt(args[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid task id %q: %w", args[0], err)
-		}
-
-		store, err := jot.OpenStore(DBPath())
-		if err != nil {
-			return fmt.Errorf("open store: %w", err)
-		}
-		defer store.Close()
-
-		if err := store.CompleteTask(id); err != nil {
-			return fmt.Errorf("complete task %d: %w", id, err)
-		}
-
-		fmt.Fprintln(out, cli.Success(out, fmt.Sprintf("task %s marked done", cli.Accent(out, strconv.FormatInt(id, 10)))))
-		return nil
-	},
+// noteCmd is the parent for `jot note` — all note management subcommands.
+//
+// Subcommands:
+//
+//	new      create a new note and open in $EDITOR
+//	edit     open an existing note by slug
+//	list     list notes, optionally filtered by tag
+//	search   full-text search across notes
+//	mv       rename a note and rewrite wikilinks
+var noteCmd = &cobra.Command{
+	Use:   "note",
+	Short: "Manage notes",
 }
 
 func init() {
-	rootCmd.AddCommand(doneCmd)
+	noteCmd.AddCommand(noteNewCmd)
+	noteCmd.AddCommand(noteEditCmd)
+	noteCmd.AddCommand(noteListCmd)
+	noteCmd.AddCommand(noteSearchCmd)
+	noteCmd.AddCommand(noteMvCmd)
+	rootCmd.AddCommand(noteCmd)
 }

@@ -1,22 +1,22 @@
 // Copyright (c) 2026 John Dewey
-
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to
-// deal in the Software without restriction, including without limitation the
-// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-// sell copies of the Software, and to permit persons to whom the Software is
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-// DEALINGS IN THE SOFTWARE.
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 package cmd
 
@@ -37,31 +37,22 @@ var mcpStartCmd = &cobra.Command{
 	Long: `Speaks Model Context Protocol on stdin/stdout — the transport
 agents (Claude Code, Cursor, …) expect when they spawn a server as
 a subprocess. Blocks until the agent disconnects (the typical MCP
-lifecycle); the SQLite store is closed cleanly on exit.
+lifecycle); exits cleanly on disconnect.
 
 Logs go to stderr only — stdout is the JSON-RPC wire and writing
 anything else there would corrupt the protocol.
 
-  jot mcp start                         # default config dir
-  JOT_DB_PATH=/tmp/jot.db jot mcp start # custom database path`,
+  jot mcp start                              # default config dir
+  JOT_NOTES_DIR=/tmp/notes jot mcp start    # custom notes directory`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		dbPath := DBPath()
-		if dbPath == "" {
-			return fmt.Errorf("mcp start: db path could not be determined")
-		}
 		notesDir := NotesDir()
 		if notesDir == "" {
 			return fmt.Errorf("mcp start: notes dir could not be determined")
 		}
 
-		// Every diagnostic line from the MCP server has to go to
-		// stderr — stdout is the JSON-RPC wire. Inherit the root
-		// logger (which targets stderr by default) and tag with the
-		// subsystem.
 		log := logger.With(slog.String("subsystem", "mcp.start"))
 		log.Info(
 			"config",
-			slog.String("db_path", dbPath),
 			slog.String("notes_dir", notesDir),
 		)
 
@@ -73,7 +64,6 @@ anything else there would corrupt the protocol.
 		defer cancel()
 
 		s, err := mcppkg.New(mcppkg.Config{
-			DBPath:   dbPath,
 			NotesDir: notesDir,
 			Logger:   logger,
 		})

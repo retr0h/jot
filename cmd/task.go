@@ -21,42 +21,24 @@
 package cmd
 
 import (
-	"fmt"
-
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
-
-	"github.com/retr0h/jot/internal/jot"
 )
 
-var labelsCmd = &cobra.Command{
-	Use:   "labels",
-	Short: "List all labels",
-	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, _ []string) error {
-		out := c.OutOrStdout()
-
-		store, err := jot.OpenStore(DBPath())
-		if err != nil {
-			return fmt.Errorf("open store: %w", err)
-		}
-		defer store.Close()
-
-		labels, err := store.ListLabels()
-		if err != nil {
-			return fmt.Errorf("list labels: %w", err)
-		}
-
-		accent := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffb86c"))
-
-		for _, l := range labels {
-			fmt.Fprintln(out, accent.Render(l.Name))
-		}
-
-		return nil
-	},
+// taskCmd is the parent for `jot task` — all task management subcommands.
+//
+// Subcommands:
+//
+//	list   list tasks, optionally filtered by status or tag
+//	done   mark a task as complete by slug + description
+//	due    show tasks due within a time period
+var taskCmd = &cobra.Command{
+	Use:   "task",
+	Short: "Manage tasks",
 }
 
 func init() {
-	rootCmd.AddCommand(labelsCmd)
+	taskCmd.AddCommand(taskListCmd)
+	taskCmd.AddCommand(taskDoneCmd)
+	taskCmd.AddCommand(taskDueCmd)
+	rootCmd.AddCommand(taskCmd)
 }

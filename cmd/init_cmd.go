@@ -28,7 +28,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
+	"github.com/retr0h/jot/internal/gitops"
 )
 
 // defaultConfig is the template written to jot.yaml on first init.
@@ -37,35 +37,29 @@ import (
 const defaultConfig = `# jot configuration — uncomment and adjust as needed.
 # All values can also be set via JOT_<KEY> environment variables.
 
-# editor: ""          # preferred editor (falls back to $EDITOR / $VISUAL)
-# notes_dir: ""       # override the notes directory (default: <config>/notes)
-# db_path: ""         # override the database path (default: <config>/jot.db)
-
-# git:
-#   enabled: false      # track notes directory in git
-#   auto_commit: false  # commit automatically on every write
+# editor: ""          # override $EDITOR
+# notes_dir: ""       # override notes directory
 `
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize jot — create config dir, notes dir, and database",
+	Short: "Initialize jot — create config dir, notes dir, and git repo",
 	RunE: func(_ *cobra.Command, _ []string) error {
 		cfgDir := ConfigDir()
 		notesDir := NotesDir()
-		dbPath := DBPath()
 		out := os.Stdout
 
 		// 1. Create config directory.
 		if err := os.MkdirAll(cfgDir, 0o700); err != nil {
 			return fmt.Errorf("create config dir %q: %w", cfgDir, err)
 		}
-		fmt.Println(cli.Success(out, "config dir:  "+cli.Accent(out, cfgDir)))
+		fmt.Fprintln(out, cli.Success(out, "config dir:  "+cli.Accent(out, cfgDir)))
 
 		// 2. Create notes subdirectory.
 		if err := os.MkdirAll(notesDir, 0o700); err != nil {
 			return fmt.Errorf("create notes dir %q: %w", notesDir, err)
 		}
-		fmt.Println(cli.Success(out, "notes dir:   "+cli.Accent(out, notesDir)))
+		fmt.Fprintln(out, cli.Success(out, "notes dir:   "+cli.Accent(out, notesDir)))
 
 		// 3. Write jot.yaml only when it does not already exist so we
 		//    never clobber a user's hand-edited config.
@@ -74,18 +68,31 @@ var initCmd = &cobra.Command{
 			if err := os.WriteFile(cfgFile, []byte(defaultConfig), 0o600); err != nil {
 				return fmt.Errorf("write config file %q: %w", cfgFile, err)
 			}
-			fmt.Println(cli.Success(out, "config file: "+cli.Accent(out, cfgFile)))
+			fmt.Fprintln(out, cli.Success(out, "config file: "+cli.Accent(out, cfgFile)))
 		} else {
-			fmt.Println(cli.Info(out, "config file already exists, skipping: "+cfgFile))
+			fmt.Fprintln(out, cli.Info(out, "config file already exists, skipping: "+cfgFile))
 		}
 
-		// 4. Open / create the SQLite database.
-		store, err := jot.OpenStore(dbPath)
+		// 4. Initialize git repo in the notes directory and create an
+		//    initial commit so the history starts clean.
+		repo, err := gitops.InitRepo(notesDir)
 		if err != nil {
-			return fmt.Errorf("init database %q: %w", dbPath, err)
+			return fmt.Errorf("init git repo: %w", err)
 		}
-		store.Close()
-		fmt.Println(cli.Success(out, "database:    "+cli.Accent(out, dbPath)))
+		fmt.Fprintln(out, cli.Success(out, "git repo:    "+cli.Accent(out, notesDir)))
+
+		// Write a .gitkeep so the initial commit has content.
+		keepFile := filepath.Join(notesDir, ".gitkeep")
+		if _, statErr := os.Stat(keepFile); os.IsNotExist(statErr) {
+			_ = os.WriteFile(keepFile, []byte(""), 0o600)
+		}
+
+		if err := repo.Commit("chore: init jot notes repository"); err != nil {
+			// Non-fatal — the repo already has commits or the tree is clean.
+			logger.Debug("initial commit skipped", "reason", err.Error())
+		} else {
+			fmt.Fprintln(out, cli.Success(out, "initial commit created"))
+		}
 
 		return nil
 	},

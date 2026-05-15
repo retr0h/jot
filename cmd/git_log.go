@@ -23,44 +23,44 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
+	"github.com/retr0h/jot/internal/gitops"
 )
 
-var labelFilterFlag string
+var gitLogSlugFlag string
 
-var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List notes, optionally filtered by label",
+// gitLogCmd implements `jot git log [--slug <slug>]`.
+// Opens the notes directory as a git repo and prints the commit log.
+// If slug is provided, only commits that touched that file are shown.
+var gitLogCmd = &cobra.Command{
+	Use:   "log",
+	Short: "Show git log for the notes directory",
 	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, _ []string) error {
+	RunE: func(c *cobra.Command, args []string) error {
 		out := c.OutOrStdout()
+		notesDir := NotesDir()
 
-		store, err := jot.OpenStore(DBPath())
+		repo, err := gitops.OpenRepo(notesDir)
 		if err != nil {
-			return fmt.Errorf("open store: %w", err)
-		}
-		defer store.Close()
-
-		notes, err := store.ListNotes(labelFilterFlag)
-		if err != nil {
-			return fmt.Errorf("list notes: %w", err)
+			return fmt.Errorf("open repo: %w", err)
 		}
 
-		muted := lipgloss.NewStyle().Faint(true)
-		accent := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffb86c"))
+		path := ""
+		if gitLogSlugFlag != "" {
+			path = gitLogSlugFlag + ".md"
+		}
 
-		for _, n := range notes {
-			date := muted.Render(n.CreatedAt.Format("2006-01-02"))
-			title := accent.Render(n.Title)
-			lock := ""
-			if n.Secure {
-				lock = " " + cli.Info(out, "")
-			}
-			fmt.Fprintf(out, "%s  %s%s\n", date, title, lock)
+		entries, err := repo.Log(path, 0)
+		if err != nil {
+			return fmt.Errorf("git log: %w", err)
+		}
+
+		for _, e := range entries {
+			hash := cli.Hash(out, e.Hash)
+			date := cli.Mute(out, e.Date.Format("2006-01-02"))
+			fmt.Fprintf(out, "%s  %s  %s\n", hash, e.Message, date)
 		}
 
 		return nil
@@ -68,6 +68,5 @@ var listCmd = &cobra.Command{
 }
 
 func init() {
-	listCmd.Flags().StringVar(&labelFilterFlag, "label", "", "filter notes by label name")
-	rootCmd.AddCommand(listCmd)
+	gitLogCmd.Flags().StringVar(&gitLogSlugFlag, "slug", "", "filter log to a specific note slug")
 }

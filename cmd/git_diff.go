@@ -22,47 +22,50 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	"github.com/retr0h/jot/internal/jot"
+	"github.com/retr0h/jot/internal/cli"
+	"github.com/retr0h/jot/internal/gitops"
 )
 
-var searchCmd = &cobra.Command{
-	Use:   "search <query>",
-	Short: "Full-text search across notes",
-	Args:  cobra.MinimumNArgs(1),
+var gitDiffSlugFlag string
+
+// gitDiffCmd implements `jot git diff [--slug <slug>]`.
+// Prints the working-tree diff, optionally filtered to a single note.
+var gitDiffCmd = &cobra.Command{
+	Use:   "diff",
+	Short: "Show working-tree diff for the notes directory",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, args []string) error {
 		out := c.OutOrStdout()
+		notesDir := NotesDir()
 
-		query := strings.Join(args, " ")
-
-		store, err := jot.OpenStore(DBPath())
+		repo, err := gitops.OpenRepo(notesDir)
 		if err != nil {
-			return fmt.Errorf("open store: %w", err)
+			return fmt.Errorf("open repo: %w", err)
 		}
-		defer store.Close()
 
-		results, err := store.SearchNotes(query)
+		path := ""
+		if gitDiffSlugFlag != "" {
+			path = gitDiffSlugFlag + ".md"
+		}
+
+		diff, err := repo.Diff(path)
 		if err != nil {
-			return fmt.Errorf("search notes: %w", err)
+			return fmt.Errorf("git diff: %w", err)
 		}
 
-		accent := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffb86c"))
-		muted := lipgloss.NewStyle().Faint(true)
-
-		for _, r := range results {
-			title := accent.Render(r.Title)
-			slug := muted.Render(r.Slug)
-			fmt.Fprintf(out, "%s  %s\n", title, slug)
+		if diff == "" {
+			fmt.Fprintln(out, cli.Mute(out, "working tree clean"))
+			return nil
 		}
 
+		fmt.Fprint(out, diff)
 		return nil
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(searchCmd)
+	gitDiffCmd.Flags().StringVar(&gitDiffSlugFlag, "slug", "", "filter diff to a specific note slug")
 }
