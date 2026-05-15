@@ -1,22 +1,22 @@
 // Copyright (c) 2026 John Dewey
-
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to
-// deal in the Software without restriction, including without limitation the
-// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-// sell copies of the Software, and to permit persons to whom the Software is
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-// DEALINGS IN THE SOFTWARE.
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 package mcp
 
@@ -32,12 +32,11 @@ import (
 	"github.com/retr0h/jot/internal/jot"
 )
 
-// registerTools wires all 14 jot MCP tools into the SDK server. Input schemas
-// are derived from the arg struct's json and jsonschema tags by the SDK.
+// registerTools wires all 8 jot MCP tools into the SDK server.
 func (s *Server) registerTools() {
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_notes",
-		Description: "List all notes, optionally filtered by label name.",
+		Description: "List all notes, optionally filtered by tag name.",
 	}, s.handleListNotes)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -47,27 +46,22 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_note",
-		Description: "Create a new markdown note. Writes the file, indexes it for FTS, and parses any @task markers in the content.",
+		Description: "Create a new markdown note with YAML front-matter scaffold.",
 	}, s.handleCreateNote)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "edit_note",
-		Description: "Overwrite a note's markdown content and re-index it for FTS.",
-	}, s.handleEditNote)
-
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "delete_note",
-		Description: "Delete a note's markdown file and remove it from the store.",
+		Description: "Delete a note's markdown file from disk.",
 	}, s.handleDeleteNote)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "search_notes",
-		Description: "Full-text search across note titles and bodies using SQLite FTS5.",
+		Description: "Case-insensitive substring search across note titles and bodies.",
 	}, s.handleSearchNotes)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_tasks",
-		Description: `List tasks filtered by status ("open", "done", or "all") and optionally by label.`,
+		Description: `List tasks filtered by status ("open", "done", or "all") and optionally by tag.`,
 	}, s.handleListTasks)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -76,40 +70,15 @@ func (s *Server) registerTools() {
 	}, s.handleTasksDue)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "complete_task",
-		Description: "Mark a task as done.",
-	}, s.handleCompleteTask)
-
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "reopen_task",
-		Description: "Revert a done task back to open.",
-	}, s.handleReopenTask)
-
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "list_labels",
-		Description: "List all labels ordered by name.",
-	}, s.handleListLabels)
-
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "create_label",
-		Description: "Create a new label by name.",
-	}, s.handleCreateLabel)
-
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "delete_label",
-		Description: "Delete a label by id. Cascades to note_labels and task_labels.",
-	}, s.handleDeleteLabel)
-
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "create_task",
-		Description: "Create a standalone task. Optionally link to an existing note and/or set a due date.",
-	}, s.handleCreateTask)
+		Name:        "list_tags",
+		Description: "List all unique tags across all notes (frontmatter + inline #tags + task tags).",
+	}, s.handleListTags)
 }
 
 // ─── argument structs ─────────────────────────────────────────────────────────
 
 type listNotesArgs struct {
-	Label string `json:"label,omitempty" jsonschema:"Filter to notes carrying this label (optional)."`
+	Tag string `json:"tag,omitempty" jsonschema:"Filter to notes carrying this tag (optional)."`
 }
 
 type getNoteArgs struct {
@@ -118,12 +87,7 @@ type getNoteArgs struct {
 
 type createNoteArgs struct {
 	Title   string `json:"title"   jsonschema:"Note title (used to derive the slug)."`
-	Content string `json:"content" jsonschema:"Markdown content of the note."`
-}
-
-type editNoteArgs struct {
-	Slug    string `json:"slug"    jsonschema:"The note slug to edit."`
-	Content string `json:"content" jsonschema:"New markdown content."`
+	Content string `json:"content" jsonschema:"Markdown content of the note (optional; scaffold used when empty)."`
 }
 
 type deleteNoteArgs struct {
@@ -131,41 +95,19 @@ type deleteNoteArgs struct {
 }
 
 type searchNotesArgs struct {
-	Query string `json:"query" jsonschema:"FTS5 query string."`
+	Query string `json:"query" jsonschema:"Case-insensitive substring to search for."`
 }
 
 type listTasksArgs struct {
 	Status string `json:"status,omitempty" jsonschema:"Task status filter: open, done, or all (default all)."`
-	Label  string `json:"label,omitempty"  jsonschema:"Filter to tasks carrying this label (optional)."`
+	Tag    string `json:"tag,omitempty"    jsonschema:"Filter to tasks carrying this tag (optional)."`
 }
 
 type tasksDueArgs struct {
 	Period string `json:"period" jsonschema:"Period to query: today, this_week, or this_month."`
 }
 
-type completeTaskArgs struct {
-	ID int64 `json:"id" jsonschema:"Task ID to complete."`
-}
-
-type reopenTaskArgs struct {
-	ID int64 `json:"id" jsonschema:"Task ID to reopen."`
-}
-
-type listLabelsArgs struct{}
-
-type createLabelArgs struct {
-	Name string `json:"name" jsonschema:"Label name (must be unique)."`
-}
-
-type deleteLabelArgs struct {
-	ID int64 `json:"id" jsonschema:"Label ID to delete."`
-}
-
-type createTaskArgs struct {
-	Description string `json:"description"        jsonschema:"Task description."`
-	NoteSlug    string `json:"note_slug,omitempty" jsonschema:"Slug of an existing note to link this task to (optional)."`
-	DueDate     string `json:"due_date,omitempty"  jsonschema:"Due date: YYYY-MM-DD or natural language (today, tomorrow, next week, weekday name)."`
-}
+type listTagsArgs struct{}
 
 // ─── handlers ─────────────────────────────────────────────────────────────────
 
@@ -174,7 +116,7 @@ func (s *Server) handleListNotes(
 	_ *mcpsdk.CallToolRequest,
 	args listNotesArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
-	notes, err := s.store.ListNotes(args.Label)
+	notes, err := s.notes.ListNotes(s.notesDir, args.Tag)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
@@ -189,11 +131,17 @@ func (s *Server) handleGetNote(
 	if args.Slug == "" {
 		return textResult("error: slug is required"), nil, nil
 	}
+	note, err := s.notes.FindNote(s.notesDir, args.Slug)
+	if err != nil {
+		return textResult(fmt.Sprintf("error: get note %q: %v", args.Slug, err)), nil, nil
+	}
+	// Read raw file content so the agent sees the full note including front-matter.
 	notePath := filepath.Join(s.notesDir, args.Slug+".md")
 	content, err := os.ReadFile(notePath)
 	if err != nil {
-		return textResult(fmt.Sprintf("error: read note %q: %v", args.Slug, err)), nil, nil
+		return textResult(fmt.Sprintf("error: read note file %q: %v", args.Slug, err)), nil, nil
 	}
+	_ = note
 	return textResult(string(content)), nil, nil
 }
 
@@ -205,94 +153,24 @@ func (s *Server) handleCreateNote(
 	if args.Title == "" {
 		return textResult("error: title is required"), nil, nil
 	}
-	if args.Content == "" {
-		return textResult("error: content is required"), nil, nil
-	}
 
 	slug := jot.NewSlug(args.Title, time.Now())
 
 	if err := os.MkdirAll(s.notesDir, 0o700); err != nil {
 		return textResult(fmt.Sprintf("error: create notes dir: %v", err)), nil, nil
 	}
+
 	notePath := filepath.Join(s.notesDir, slug+".md")
-	if err := os.WriteFile(notePath, []byte(args.Content), 0o600); err != nil {
+	content := args.Content
+	if content == "" {
+		content = jot.ScaffoldFrontmatter(args.Title, time.Now().Format("2006-01-02"))
+	}
+
+	if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
 		return textResult(fmt.Sprintf("error: write note file: %v", err)), nil, nil
 	}
 
-	note, err := s.store.CreateNote(slug, args.Title, false)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: create note in store: %v", err)), nil, nil
-	}
-
-	if err := s.store.IndexNote(note.ID, args.Title, args.Content); err != nil {
-		return textResult(fmt.Sprintf("error: index note: %v", err)), nil, nil
-	}
-
-	// Parse @task markers and create tasks in the store.
-	rawTasks := jot.ParseTasks(args.Content)
-	for _, raw := range rawTasks {
-		task, err := s.store.CreateTask(note.ID, raw.Description, raw.Line)
-		if err != nil {
-			continue
-		}
-		if raw.DueDate != "" {
-			due, err := jot.ParseDate(raw.DueDate, time.Now())
-			if err == nil {
-				_ = s.store.SetTaskDue(task.ID, &due)
-			}
-		}
-		for _, labelName := range raw.Labels {
-			label, err := s.store.CreateLabel(labelName)
-			if err != nil {
-				// Label may already exist; look it up.
-				labels, lerr := s.store.ListLabels()
-				if lerr != nil {
-					continue
-				}
-				for _, l := range labels {
-					if l.Name == labelName {
-						label = l
-						break
-					}
-				}
-				if label == nil {
-					continue
-				}
-			}
-			_ = s.store.AddTaskLabel(task.ID, label.ID)
-		}
-	}
-
-	return textResult(jsonOrErr(note)), nil, nil
-}
-
-func (s *Server) handleEditNote(
-	_ context.Context,
-	_ *mcpsdk.CallToolRequest,
-	args editNoteArgs,
-) (*mcpsdk.CallToolResult, any, error) {
-	if args.Slug == "" {
-		return textResult("error: slug is required"), nil, nil
-	}
-	if args.Content == "" {
-		return textResult("error: content is required"), nil, nil
-	}
-
-	note, err := s.store.GetNoteBySlug(args.Slug)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: get note %q: %v", args.Slug, err)), nil, nil
-	}
-
-	notePath := filepath.Join(s.notesDir, args.Slug+".md")
-	if err := os.WriteFile(notePath, []byte(args.Content), 0o600); err != nil {
-		return textResult(fmt.Sprintf("error: write note file: %v", err)), nil, nil
-	}
-
-	if err := s.store.IndexNote(note.ID, note.Title, args.Content); err != nil {
-		return textResult(fmt.Sprintf("error: re-index note: %v", err)), nil, nil
-	}
-
-	return textResult(jsonOrErr(note)), nil, nil
+	return textResult(fmt.Sprintf(`{"slug": %q, "path": %q}`, slug, notePath)), nil, nil
 }
 
 func (s *Server) handleDeleteNote(
@@ -304,17 +182,9 @@ func (s *Server) handleDeleteNote(
 		return textResult("error: slug is required"), nil, nil
 	}
 
-	note, err := s.store.GetNoteBySlug(args.Slug)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: get note %q: %v", args.Slug, err)), nil, nil
-	}
-
 	notePath := filepath.Join(s.notesDir, args.Slug+".md")
-	// Best-effort file removal; proceed even if the file is already gone.
-	_ = os.Remove(notePath)
-
-	if err := s.store.DeleteNote(note.ID); err != nil {
-		return textResult(fmt.Sprintf("error: delete note from store: %v", err)), nil, nil
+	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
+		return textResult(fmt.Sprintf("error: delete note %q: %v", args.Slug, err)), nil, nil
 	}
 
 	return textResult(fmt.Sprintf(`{"deleted": %q}`, args.Slug)), nil, nil
@@ -328,7 +198,7 @@ func (s *Server) handleSearchNotes(
 	if args.Query == "" {
 		return textResult("error: query is required"), nil, nil
 	}
-	results, err := s.store.SearchNotes(args.Query)
+	results, err := s.notes.SearchNotes(s.notesDir, args.Query)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
@@ -344,7 +214,7 @@ func (s *Server) handleListTasks(
 	if status == "" {
 		status = "all"
 	}
-	tasks, err := s.store.ListTasks(status, args.Label)
+	tasks, err := s.tasks.AllTasks(s.notesDir, status, args.Tag)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
@@ -374,113 +244,23 @@ func (s *Server) handleTasksDue(
 		return textResult("error: period must be today, this_week, or this_month"), nil, nil
 	}
 
-	tasks, err := s.store.TasksDue(from, to)
+	tasks, err := s.tasks.TasksDue(s.notesDir, from, to)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
 	return textResult(jsonOrErr(tasks)), nil, nil
 }
 
-func (s *Server) handleCompleteTask(
+func (s *Server) handleListTags(
 	_ context.Context,
 	_ *mcpsdk.CallToolRequest,
-	args completeTaskArgs,
+	_ listTagsArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
-	if args.ID == 0 {
-		return textResult("error: id is required"), nil, nil
-	}
-	if err := s.store.CompleteTask(args.ID); err != nil {
-		return textResult("error: " + err.Error()), nil, nil
-	}
-	return textResult(fmt.Sprintf(`{"completed": %d}`, args.ID)), nil, nil
-}
-
-func (s *Server) handleReopenTask(
-	_ context.Context,
-	_ *mcpsdk.CallToolRequest,
-	args reopenTaskArgs,
-) (*mcpsdk.CallToolResult, any, error) {
-	if args.ID == 0 {
-		return textResult("error: id is required"), nil, nil
-	}
-	if err := s.store.ReopenTask(args.ID); err != nil {
-		return textResult("error: " + err.Error()), nil, nil
-	}
-	return textResult(fmt.Sprintf(`{"reopened": %d}`, args.ID)), nil, nil
-}
-
-func (s *Server) handleListLabels(
-	_ context.Context,
-	_ *mcpsdk.CallToolRequest,
-	_ listLabelsArgs,
-) (*mcpsdk.CallToolResult, any, error) {
-	labels, err := s.store.ListLabels()
+	tags, err := s.tags.AllTags(s.notesDir)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
-	return textResult(jsonOrErr(labels)), nil, nil
-}
-
-func (s *Server) handleCreateLabel(
-	_ context.Context,
-	_ *mcpsdk.CallToolRequest,
-	args createLabelArgs,
-) (*mcpsdk.CallToolResult, any, error) {
-	if args.Name == "" {
-		return textResult("error: name is required"), nil, nil
-	}
-	label, err := s.store.CreateLabel(args.Name)
-	if err != nil {
-		return textResult("error: " + err.Error()), nil, nil
-	}
-	return textResult(jsonOrErr(label)), nil, nil
-}
-
-func (s *Server) handleDeleteLabel(
-	_ context.Context,
-	_ *mcpsdk.CallToolRequest,
-	args deleteLabelArgs,
-) (*mcpsdk.CallToolResult, any, error) {
-	if args.ID == 0 {
-		return textResult("error: id is required"), nil, nil
-	}
-	if err := s.store.DeleteLabel(args.ID); err != nil {
-		return textResult("error: " + err.Error()), nil, nil
-	}
-	return textResult(fmt.Sprintf(`{"deleted": %d}`, args.ID)), nil, nil
-}
-
-func (s *Server) handleCreateTask(
-	_ context.Context,
-	_ *mcpsdk.CallToolRequest,
-	args createTaskArgs,
-) (*mcpsdk.CallToolResult, any, error) {
-	if args.Description == "" {
-		return textResult("error: description is required"), nil, nil
-	}
-
-	var noteID int64
-	if args.NoteSlug != "" {
-		note, err := s.store.GetNoteBySlug(args.NoteSlug)
-		if err != nil {
-			return textResult(fmt.Sprintf("error: get note %q: %v", args.NoteSlug, err)), nil, nil
-		}
-		noteID = note.ID
-	}
-
-	task, err := s.store.CreateTask(noteID, args.Description, 0)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: create task: %v", err)), nil, nil
-	}
-
-	if args.DueDate != "" {
-		due, err := jot.ParseDate(args.DueDate, time.Now())
-		if err == nil {
-			_ = s.store.SetTaskDue(task.ID, &due)
-		}
-	}
-
-	return textResult(jsonOrErr(task)), nil, nil
+	return textResult(jsonOrErr(tags)), nil, nil
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
