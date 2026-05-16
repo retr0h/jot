@@ -53,13 +53,13 @@ just ready          # fmt + vet + lint
 
 ## Key Invariants
 
-**Files are the source of truth.** Every note is a plain `.md` file.
-There is no database — the filesystem is the store. Slugs are derived
-from the title and a timestamp to avoid collisions.
+**Files are the source of truth.** Every note is a plain `.md` file. There is no
+database — the filesystem is the store. Slugs are derived from the title and a
+timestamp to avoid collisions.
 
-**Git backs everything.** Every write goes through `internal/gitops`,
-which stages the file and creates a commit. `jot git log` / `jot git
-diff` / `jot git show` surface the history to the user. Nothing is lost.
+**Git backs everything.** Every write goes through `internal/gitops`, which
+stages the file and creates a commit. `jot git log` / `jot git diff` /
+`jot git show` surface the history to the user. Nothing is lost.
 
 **`@task` round-trips.** The parser handles both forms:
 
@@ -68,43 +68,43 @@ diff` / `jot git show` surface the history to the user. Nothing is lost.
 @task(fix the broken deploy script | due:friday) #ops
 ```
 
-After the interactive prompt (or MCP call) jot rewrites bare markers to
-the resolved `@task(...)` form in place. Editing the file in nvim leaves
-both forms valid; the parser accepts either on the next read.
+After the interactive prompt (or MCP call) jot rewrites bare markers to the
+resolved `@task(...)` form in place. Editing the file in nvim leaves both forms
+valid; the parser accepts either on the next read.
 
 **`[[slug]]` links.** Wiki-style links reference other notes by slug.
-obsidian.nvim resolves them and autocompletes on `[[`. jot itself does
-not validate links at write time — broken links surface in the nvim UI.
+obsidian.nvim resolves them and autocompletes on `[[`. jot itself does not
+validate links at write time — broken links surface in the nvim UI.
 
-**Tags in frontmatter.** Tags are YAML `tags:` arrays in frontmatter.
-`@task` markers carry `#tag` annotations outside the parentheses. Both
-surfaces are queryable via `jot tag list` and the MCP `list_notes` tool.
+**Tags in frontmatter.** Tags are YAML `tags:` arrays in frontmatter. `@task`
+markers carry `#tag` annotations outside the parentheses. Both surfaces are
+queryable via `jot tag list` and the MCP `list_notes` tool.
 
-**Interfaces where consumed.** The MCP server defines its own interfaces
-in `internal/mcp/` rather than depending on a concrete type from
-`internal/jot/`. The cobra commands follow the same pattern — each
-command file declares a narrow interface for the operations it needs.
+**Interfaces where consumed.** The MCP server defines its own interfaces in
+`internal/mcp/` rather than depending on a concrete type from `internal/jot/`.
+The cobra commands follow the same pattern — each command file declares a narrow
+interface for the operations it needs.
 
 ## Testing Conventions
 
-**Every public function and method MUST have a table-driven test.** One
-table per function, with rows covering both the happy path and every
-failure mode the function can produce.
+**Every public function and method MUST have a table-driven test.** One table
+per function, with rows covering both the happy path and every failure mode the
+function can produce.
 
-> **Anti-pattern (do not do this):** writing a separate one-off test
-> function for a failure scenario. If you find yourself drafting a
-> `TestFoo_ReturnsErrorOnEmpty`, stop — instead add a row to the
-> existing `TestFoo` table. Each public function gets exactly **one**
-> `Test*` function in the codebase.
+> **Anti-pattern (do not do this):** writing a separate one-off test function
+> for a failure scenario. If you find yourself drafting a
+> `TestFoo_ReturnsErrorOnEmpty`, stop — instead add a row to the existing
+> `TestFoo` table. Each public function gets exactly **one** > `Test*` function
+> in the codebase.
 
 ### File naming (non-negotiable)
 
-**One test file per production file.** `notes.go` is tested by
-`notes_test.go` — never `helpers_notes_test.go` or similar. If tests
-outgrow one file, split the production file first.
+**One test file per production file.** `notes.go` is tested by `notes_test.go` —
+never `helpers_notes_test.go` or similar. If tests outgrow one file, split the
+production file first.
 
-Two exceptions: shared fixtures in `helpers_test.go` / `fakes_test.go`,
-and `main_test.go` for `TestMain`.
+Two exceptions: shared fixtures in `helpers_test.go` / `fakes_test.go`, and
+`main_test.go` for `TestMain`.
 
 ### Table shape
 
@@ -132,12 +132,12 @@ func TestParseDate(t *testing.T) {
 
 Every function's table MUST include rows covering:
 
-| Scenario        | What to test                                        |
-| --------------- | --------------------------------------------------- |
-| Happy path      | Expected input produces expected output              |
-| Empty input     | Empty string / nil / zero value handled gracefully   |
-| Invalid input   | Malformed data returns an error, doesn't panic       |
-| Edge cases      | Boundary values, duplicates, unicode, path traversal |
+| Scenario      | What to test                                         |
+| ------------- | ---------------------------------------------------- |
+| Happy path    | Expected input produces expected output              |
+| Empty input   | Empty string / nil / zero value handled gracefully   |
+| Invalid input | Malformed data returns an error, doesn't panic       |
+| Edge cases    | Boundary values, duplicates, unicode, path traversal |
 
 ### Test naming
 
@@ -148,8 +148,8 @@ Every function's table MUST include rows covering:
 ## Adding a Command
 
 1. Create `cmd/<parent>_<name>.go` (e.g. `note_edit.go`).
-2. Define a `*cobra.Command` with `Args: cobra.NoArgs` — use flags for
-   all inputs, never positional args. Mark required flags with
+2. Define a `*cobra.Command` with `Args: cobra.NoArgs` — use flags for all
+   inputs, never positional args. Mark required flags with
    `cobra.MarkFlagRequired`.
 3. Register in `init()` via the parent subcommand.
 4. Declare a narrow interface for the operations the command needs.
@@ -175,8 +175,8 @@ Every function's table MUST include rows covering:
     └── .git/          # git repo tracking the notes directory
 ```
 
-Override via `--config` flag or `JOT_CONFIG_DIR` env var. Notes
-directory overridden independently with `JOT_NOTES_DIR`.
+Override via `--config` flag or `JOT_CONFIG_DIR` env var. Notes directory
+overridden independently with `JOT_NOTES_DIR`.
 
 ## Note Format
 
@@ -191,8 +191,7 @@ created: 2026-02-01
 
 Steps before promoting to production. See also [[pre-deploy-checklist]].
 
-@task(run smoke tests | due:2026-05-16) #ops #ci
-@task update rollback docs #ops
+@task(run smoke tests | due:2026-05-16) #ops #ci @task update rollback docs #ops
 
 - [x] Review diff with team
 - [ ] Tag release
@@ -223,31 +222,26 @@ Natural language dates accepted by `due:`: `today`, `tomorrow`,
 #3b4261  drained   separators, dim text
 ```
 
-All palette values are defined as named constants in
-`internal/cli/theme.go`. Never pass raw hex strings to lipgloss in
-command or handler code — reference the theme roles (`Accent`, `OK`,
-`Err`, `Info`, `Mute`) instead.
+All palette values are defined as named constants in `internal/cli/theme.go`.
+Never pass raw hex strings to lipgloss in command or handler code — reference
+the theme roles (`Accent`, `OK`, `Err`, `Info`, `Mute`) instead.
 
 ## MCP Server
 
-The server is implemented with `github.com/modelcontextprotocol/go-sdk`.
-Tools are registered in `internal/mcp/tools.go` via `mcpsdk.AddTool`.
-Each tool has a dedicated argument struct with `json` and `jsonschema`
-tags — the SDK derives the JSON Schema from those tags automatically.
+The server is implemented with `github.com/modelcontextprotocol/go-sdk`. Tools
+are registered in `internal/mcp/tools.go` via `mcpsdk.AddTool`. Each tool has a
+dedicated argument struct with `json` and `jsonschema` tags — the SDK derives
+the JSON Schema from those tags automatically.
 
-The server is spawned per agent session over stdio. When the agent
-disconnects the process exits and any open resources are closed via
-deferred cleanup.
+The server is spawned per agent session over stdio. When the agent disconnects
+the process exits and any open resources are closed via deferred cleanup.
 
 ## Commit Messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-- **Subject line**: max 50 characters, imperative mood, capitalized, no
-  period
-- **Body**: wrap at 72 characters, separated from subject by a blank
-  line
+- **Subject line**: max 50 characters, imperative mood, capitalized, no period
+- **Body**: wrap at 72 characters, separated from subject by a blank line
 - **Format**: `type(scope): description`
-- **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
-  `chore`
+- **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
 - **Scopes**: `cli`, `jot`, `gitops`, `mcp`, `docs`, `nvim`

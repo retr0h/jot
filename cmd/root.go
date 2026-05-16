@@ -129,7 +129,6 @@ func initConfig() {
 	// Defaults — all overridable via config file, env vars, or flags.
 	viper.SetDefault("editor", "")
 	viper.SetDefault("notes_dir", "")
-
 }
 
 // initLogger swaps the package-level logger to a tint handler with
