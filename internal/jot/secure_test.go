@@ -46,7 +46,7 @@ func (f *fakeProvider) Put(_ context.Context, key, value string) error {
 }
 
 func (f *fakeProvider) List(_ context.Context) ([]string, error) {
-	var keys []string
+	keys := make([]string, 0, len(f.data))
 	for k := range f.data {
 		keys = append(keys, k)
 	}

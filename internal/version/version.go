@@ -21,6 +21,7 @@
 // Package version holds build-time identity stamped by goreleaser.
 package version
 
+// Build-time variables injected by goreleaser via ldflags.
 var (
 	Version = ""
 	Commit  = ""

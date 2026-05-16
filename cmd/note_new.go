@@ -46,7 +46,7 @@ var noteNewCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Create a new note and open it in your editor",
 	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, args []string) error {
+	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		rawTitle := noteNewTitleFlag
 		notesDir := NotesDir()

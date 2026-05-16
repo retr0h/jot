@@ -39,7 +39,7 @@ var noteEditCmd = &cobra.Command{
 	Use:   "edit",
 	Short: "Open an existing note in your editor",
 	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, args []string) error {
+	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		slug := noteEditSlugFlag
 		notesDir := NotesDir()

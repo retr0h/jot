@@ -37,7 +37,7 @@ var noteSearchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "Search across notes",
 	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, args []string) error {
+	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		query := noteSearchQueryFlag
 

@@ -18,6 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// Package config holds the runtime configuration struct for jot.
 package config
 
 // Config holds the runtime configuration for jot, populated by viper from

@@ -38,7 +38,7 @@ var taskDueCmd = &cobra.Command{
 	Use:   "due",
 	Short: "Show tasks due within a given period (default: week)",
 	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, args []string) error {
+	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 
 		period := taskDuePeriodFlag

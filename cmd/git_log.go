@@ -38,7 +38,7 @@ var gitLogCmd = &cobra.Command{
 	Use:   "log",
 	Short: "Show git log for the notes directory",
 	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, args []string) error {
+	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
 

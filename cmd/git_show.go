@@ -40,7 +40,7 @@ var gitShowCmd = &cobra.Command{
 	Use:   "show",
 	Short: "Show a specific commit's patch",
 	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, args []string) error {
+	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		commit := gitShowCommitFlag
 		notesDir := NotesDir()

@@ -37,7 +37,7 @@ var gitDiffCmd = &cobra.Command{
 	Use:   "diff",
 	Short: "Show working-tree diff for the notes directory",
 	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, args []string) error {
+	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
 

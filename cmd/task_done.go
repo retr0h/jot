@@ -47,7 +47,7 @@ var taskDoneCmd = &cobra.Command{
 	Use:   "done",
 	Short: "Mark a task as complete",
 	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, args []string) error {
+	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		slug := taskDoneSlugFlag
 		desc := taskDoneDescFlag
