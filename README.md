@@ -1,29 +1,29 @@
+[![go report card](https://goreportcard.com/badge/github.com/retr0h/jot?style=for-the-badge)](https://goreportcard.com/report/github.com/retr0h/jot)
+[![license](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=for-the-badge)](LICENSE)
+[![build](https://img.shields.io/github/actions/workflow/status/retr0h/jot/go.yml?style=for-the-badge)](https://github.com/retr0h/jot/actions/workflows/go.yml)
+[![conventional commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg?style=for-the-badge)](https://conventionalcommits.org)
+[![built with just](https://img.shields.io/badge/Built_with-Just-black?style=for-the-badge&logo=just&logoColor=white)](https://just.systems)
+![github commit activity](https://img.shields.io/github/commit-activity/m/retr0h/jot?style=for-the-badge)
+[![hovnokod](https://raw.githubusercontent.com/tekk/hovnokod-badge/main/assets/badges/hovnokod-for-the-badge.svg)](https://github.com/tekk/hovnokod-badge)
+
 # jot
 
 Terminal-first markdown notes + todos with linked tasks.
 
-Plain `.md` files with YAML frontmatter, opened in `$EDITOR` (nvim by
-default). Write `[[slug]]` wiki links to connect notes, embed `@task`
-markers with `#tags` to create linked todos, and let jot track
-everything in git — every save is a commit. Sensitive notes encrypt at
-rest via [kvlt] (age + SSH keys). An MCP server exposes the full surface
-to LLM agents. No database: files are the source of truth.
+Plain `.md` files with YAML frontmatter, opened in `$EDITOR`. Write
+`[[slug]]` wiki links to connect notes, embed `@task` markers with
+`#tags` to create linked todos, and let jot track everything in git —
+every save is a commit. Sensitive notes encrypt at rest via [kvlt][]
+(age + SSH keys). An MCP server exposes the full surface to LLM agents.
+No database: files are the source of truth.
 
-[![Go Report Card][badge-go-report]][go-report]
-[![License: MIT][badge-license]][MIT]
-[![Build][badge-build]][build]
-[![Conventional Commits][badge-commits]][commits]
-[![Built with just][badge-just]][just]
-[![Commit Activity][badge-activity]][activity]
-[![hovnokod][badge-hovnokod]][hovnokod]
-
-## Install
+## 📦 Install
 
 ```bash
 curl -fsSL https://github.com/retr0h/jot/raw/main/install.sh | bash
 ```
 
-### Build from source
+### 🔨 Build from source
 
 ```bash
 git clone https://github.com/retr0h/jot.git
@@ -31,32 +31,36 @@ cd jot
 go build -o jot .
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
-# Initialize config and notes directory
 jot init
-
-# Create a new note (opens $EDITOR)
-jot note new --title "meeting notes"
-
-# List all notes
+jot note new --title "Sprint Planning"
+jot note new --title "network/Switch Config"
+jot note new --title "secrets/API Keys" --secure
 jot note list
-
-# Full-text search
-jot note search --query "standup"
-
-# List open tasks
+jot note search --query "kubernetes"
 jot task list
-
-# Tasks due this week
-jot task due --period week
-
-# Browse the git history of your notes
+jot task due
 jot git log
 ```
 
-## Note Format
+## ✨ Features
+
+| Feature              | Description                                              |
+| -------------------- | -------------------------------------------------------- |
+| Markdown notes       | `.md` files with YAML frontmatter, edited in `$EDITOR`  |
+| `[[wiki links]]`     | Cross-reference notes by slug; obsidian.nvim navigates   |
+| `@task` todos        | Due dates + `#tags`; tracked by jot, visible in nvim     |
+| Git-backed           | Every edit auto-commits; `jot git log/diff/show`         |
+| Secure vaults        | `--secure` encrypts notes via [kvlt][] (age + SSH keys)  |
+| Full-text search     | Concurrent goroutine file scan — no index, no database   |
+| MCP server           | 8 tools over stdio for Claude / Cursor / any MCP client  |
+| Subdirectory nesting | `jot note new --title "ops/runbook"` for organization    |
+| nvim plugin          | Ships `lua/jot/` — auto-configures obsidian.nvim         |
+| Max Headroom palette | Magenta `#c678dd` accent across CLI, installer, nvim     |
+
+## 📝 Note Format
 
 ```markdown
 ---
@@ -70,164 +74,94 @@ created: 2026-05-14
 Discussed the [[deployment-runbook]] and next steps.
 
 @task(follow up on infra ticket | due:friday) #work #ops
-
 @task review PR before EOD #work
 
 - [x] Send meeting summary
 - [ ] Update [[deployment-runbook]]
 ```
 
-Frontmatter keys:
+`[[slug]]` links connect notes. `@task` markers create linked todos.
+`#tags` are searchable via CLI (`jot tag list`) and nvim (`<leader>jt`).
+Frontmatter `tags:` arrays are also recognized.
 
-| Key       | Type       | Description                          |
-| --------- | ---------- | ------------------------------------ |
-| `title`   | string     | Note title                           |
-| `tags`    | string[]   | Searchable tags                      |
-| `created` | YYYY-MM-DD | Creation date (set automatically)    |
-
-`[[slug]]` links connect notes by filename slug. `@task` markers create
-linked todos; the resolved form `@task(desc | due:X)` is written back
-by jot after the interactive prompt. Tags follow the marker outside the
-parentheses: `#tag`.
-
-## nvim Setup
+## 🖥️ nvim Setup
 
 ```lua
-vim.pack.add('epwalsh/obsidian.nvim')
-vim.pack.add('OXY2DEV/markview.nvim')
-vim.pack.add('retr0h/jot.git')
+vim.pack.add({"https://github.com/epwalsh/obsidian.nvim.git"})
+vim.pack.add({"https://github.com/OXY2DEV/markview.nvim.git"})
+vim.pack.add({"https://github.com/retr0h/jot.git"})
 ```
 
-jot ships an nvim plugin at `lua/jot/init.lua` that auto-configures
-[obsidian.nvim] and [markview.nvim] when `$JOT_NOTES_DIR` is set in
-your environment. No manual workspace setup required — set the env var
-and the plugin wires everything.
+jot ships an nvim plugin that auto-configures [obsidian.nvim][] and
+[markview.nvim][] when `$JOT_NOTES_DIR` is set (jot sets this
+automatically when spawning the editor). Zero manual config.
 
-### nvim Keybindings
+### Keybindings
 
 | Key           | Action                              |
 | ------------- | ----------------------------------- |
 | `<leader>jf`  | Follow `[[link]]` under cursor      |
-| `<leader>jj`  | Jump to note (quick switch)         |
-| `<leader>js`  | Search notes (full-text)            |
-| `<leader>jt`  | Browse tags                         |
-| `<leader>jb`  | Show backlinks for current note     |
-| `<leader>jl`  | List links in current note          |
-| `<leader>jn`  | Create new note                     |
-| `<leader>jx`  | Toggle checkbox done/undone         |
-| `[[`          | Autocomplete `[[slug]]` links       |
-| `#`           | Autocomplete `#tag` from frontmatter |
+| `<leader>jj`  | Jump to note (fuzzy switch)         |
+| `<leader>js`  | Search notes (ripgrep)              |
+| `<leader>jt`  | Browse `#tags`                      |
+| `<leader>jb`  | Backlinks to current note           |
+| `<leader>jl`  | Links in current note               |
+| `<leader>jn`  | New note                            |
+| `<leader>jx`  | Toggle `[ ]` / `[x]` done          |
+| `[[`          | Autocomplete note slugs             |
+| `#`           | Autocomplete tags                   |
 
-## CLI Reference
+### Snippets
+
+Type `@task` + Tab to expand with tab-stop placeholders:
 
 ```
-jot
-├── init                                       Initialize config, notes dir, git repo
-├── note
-│   ├── new --title <title> [--secure]         Create a note and open in $EDITOR
-│   ├── edit --slug <slug>                     Re-open an existing note
-│   ├── mv --slug <slug> --title <new-title>   Rename (updates slug, links, git)
-│   ├── list [--tag <tag>]                     List notes
-│   └── search --query <query>                 Full-text search
-├── task
-│   ├── list [--status X] [--tag X]            List tasks (open by default)
-│   ├── done --slug <slug> --desc <desc>       Mark a task complete
-│   └── due [--period today|week|month]        Tasks due (default: week)
-├── tag
-│   └── list                                   List all tags
-├── git
-│   ├── log [--slug <slug>]                    Commit history
-│   ├── diff [--slug <slug>]                   Uncommitted changes
-│   └── show --commit <hash> [--note <slug>]   Specific commit diff
-└── mcp
-    └── start                                  MCP server over stdio
+@task(description | due:friday) #tag
 ```
 
-## MCP Server
+## 🤖 MCP Server
 
-jot ships an MCP server that any MCP-aware agent (Claude Code, Cursor,
-Continue) can spawn per session. Add it to `.mcp.json` in your project
-root for auto-discovery:
+Auto-discovered by Claude Code via [`.mcp.json`](.mcp.json):
 
 ```json
 {
   "mcpServers": {
-    "jot": {
-      "command": "jot",
-      "args": ["mcp", "start"]
-    }
+    "jot": { "command": "jot", "args": ["mcp", "start"] }
   }
 }
 ```
 
-Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+| Tool           | Description                                        |
+| -------------- | -------------------------------------------------- |
+| `list_notes`   | List notes, optionally filtered by tag             |
+| `get_note`     | Read full markdown by slug                         |
+| `create_note`  | Create a note with frontmatter                     |
+| `delete_note`  | Remove a note file                                 |
+| `search_notes` | Full-text search                                   |
+| `list_tasks`   | Tasks filtered by status/tag                       |
+| `tasks_due`    | Tasks due in a date range                          |
+| `list_tags`    | All tags across notes                              |
 
-```json
-{
-  "mcpServers": {
-    "jot": {
-      "command": "jot",
-      "args": ["mcp", "start"]
-    }
-  }
-}
-```
+## ⚙️ Configuration
 
-Available tools:
-
-| Tool              | Description                                      |
-| ----------------- | ------------------------------------------------ |
-| `list_notes`      | List all notes, optionally filtered by tag       |
-| `get_note`        | Read the full markdown content of a note by slug |
-| `create_note`     | Create a new markdown note and parse `@task`s    |
-| `edit_note`       | Overwrite a note's content                       |
-| `delete_note`     | Delete a note file                               |
-| `search_notes`    | Full-text search across note titles and bodies   |
-| `list_tasks`      | List tasks filtered by status and/or tag         |
-| `complete_task`   | Mark a task as done                              |
-
-## Configuration
-
-`~/.config/jot/jot.yaml` (created by `jot init`):
+`~/.config/jot/jot.yaml`:
 
 ```yaml
-# jot configuration — uncomment and adjust as needed.
-# All values can also be set via JOT_<KEY> environment variables.
-
-# editor: ""          # preferred editor (falls back to $EDITOR / $VISUAL)
-# notes_dir: ""       # override the notes directory (default: <config>/notes)
-
-# git:
-#   enabled: false      # track notes directory in git
-#   auto_commit: false  # commit automatically on every write
+# editor: ""          # override $EDITOR
+# notes_dir: ""       # override notes directory
 ```
 
-Environment variable overrides use the `JOT_` prefix with dots replaced
-by underscores: `JOT_NOTES_DIR`, `JOT_EDITOR`, `JOT_GIT_AUTO_COMMIT`.
+Git is always on — every edit auto-commits. Override the config dir with
+`--config` or `JOT_CONFIG_DIR`.
 
-## Documentation
+## 📖 Documentation
 
-- [Development][Development] — architecture, building, data layout, color palette
-- [Contributing][Contributing] — commit style, lint chain, testing standards
+- [Development][] — architecture, testing conventions, adding commands
+- [Contributing][] — commit style, lint chain, PR checklist
 
-## License
+## 📄 License
 
-[MIT]
-
-[badge-go-report]: https://goreportcard.com/badge/github.com/retr0h/jot
-[badge-license]: https://img.shields.io/badge/License-MIT-blue.svg
-[badge-build]: https://github.com/retr0h/jot/actions/workflows/go.yml/badge.svg
-[badge-commits]: https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg
-[badge-just]: https://img.shields.io/badge/built%20with-just-blue
-[badge-activity]: https://img.shields.io/github/commit-activity/m/retr0h/jot
-[badge-hovnokod]: https://img.shields.io/badge/hovnokod-true-red
-
-[go-report]: https://goreportcard.com/report/github.com/retr0h/jot
-[build]: https://github.com/retr0h/jot/actions/workflows/go.yml
-[commits]: https://conventionalcommits.org
-[just]: https://just.systems
-[activity]: https://github.com/retr0h/jot/commits/main
-[hovnokod]: https://github.com/retr0h/jot
+[MIT][]
 
 [kvlt]: https://github.com/retr0h/kvlt
 [obsidian.nvim]: https://github.com/epwalsh/obsidian.nvim

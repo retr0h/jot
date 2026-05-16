@@ -53,7 +53,7 @@ var noteListCmd = &cobra.Command{
 			if n.Secure {
 				secure = "  " + cli.Info(out, "[secure]")
 			}
-			fmt.Fprintf(out, "%s  %s  %s%s\n", date, title, slug, secure)
+			cli.Printf(out, "%s  %s  %s%s\n", date, title, slug, secure)
 		}
 
 		return nil

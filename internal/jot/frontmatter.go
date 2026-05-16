@@ -55,5 +55,10 @@ func ParseFrontmatter(content string) (Frontmatter, string) {
 // ScaffoldFrontmatter returns a complete note scaffold: a YAML front-matter
 // block followed by a level-1 heading, ready for the editor to open.
 func ScaffoldFrontmatter(title string, created string) string {
-	return fmt.Sprintf("---\ntitle: %q\ntags: []\ncreated: %s\n---\n\n# %s\n\n", title, created, title)
+	return fmt.Sprintf(
+		"---\ntitle: %q\ntags: []\ncreated: %s\n---\n\n# %s\n\n",
+		title,
+		created,
+		title,
+	)
 }

@@ -85,7 +85,9 @@ func TestSecureStoreDelete(t *testing.T) {
 	ss := jot.NewSecureStoreFromProvider(provider)
 
 	ctx := context.Background()
-	ss.WriteNote(ctx, "secret-note", "content")
+	if err := ss.WriteNote(ctx, "secret-note", "content"); err != nil {
+		t.Fatalf("WriteNote: %v", err)
+	}
 	if err := ss.DeleteNote(ctx, "secret-note"); err != nil {
 		t.Fatalf("DeleteNote: %v", err)
 	}

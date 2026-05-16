@@ -79,7 +79,7 @@ var taskDueCmd = &cobra.Command{
 
 			desc := cli.Accent(out, t.Description)
 			slug := cli.Mute(out, t.NoteSlug)
-			fmt.Fprintf(out, "%s  %s  %s\n", dateStr, desc, slug)
+			cli.Printf(out, "%s  %s  %s\n", dateStr, desc, slug)
 		}
 
 		return nil
@@ -87,5 +87,6 @@ var taskDueCmd = &cobra.Command{
 }
 
 func init() {
-	taskDueCmd.Flags().StringVar(&taskDuePeriodFlag, "period", "week", "time period: today, week, or month")
+	taskDueCmd.Flags().
+		StringVar(&taskDuePeriodFlag, "period", "week", "time period: today, week, or month")
 }

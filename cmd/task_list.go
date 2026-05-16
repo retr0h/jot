@@ -75,7 +75,7 @@ var taskListCmd = &cobra.Command{
 				slug = "  " + cli.Mute(out, t.NoteSlug)
 			}
 
-			fmt.Fprintf(out, "%s %s%s%s\n", checkbox, desc, dueStr, slug)
+			cli.Printf(out, "%s %s%s%s\n", checkbox, desc, dueStr, slug)
 		}
 
 		return nil
@@ -83,6 +83,7 @@ var taskListCmd = &cobra.Command{
 }
 
 func init() {
-	taskListCmd.Flags().StringVar(&taskListStatusFlag, "status", "all", "filter by status: open, done, or all")
+	taskListCmd.Flags().
+		StringVar(&taskListStatusFlag, "status", "all", "filter by status: open, done, or all")
 	taskListCmd.Flags().StringVar(&taskListTagFlag, "tag", "", "filter by tag/label name")
 }

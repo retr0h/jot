@@ -49,7 +49,7 @@ var noteSearchCmd = &cobra.Command{
 		for _, n := range notes {
 			title := cli.Accent(out, n.Title)
 			slug := cli.Mute(out, n.Slug)
-			fmt.Fprintf(out, "%s  %s\n", title, slug)
+			cli.Printf(out, "%s  %s\n", title, slug)
 		}
 
 		return nil

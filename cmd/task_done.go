@@ -34,8 +34,10 @@ import (
 	"github.com/retr0h/jot/internal/jot"
 )
 
-var taskDoneSlugFlag string
-var taskDoneDescFlag string
+var (
+	taskDoneSlugFlag string
+	taskDoneDescFlag string
+)
 
 // taskDoneCmd implements `jot task done --slug <slug> --desc <description>`.
 // Finds the @task line in the note file matching description (substring,
@@ -88,7 +90,8 @@ var taskDoneCmd = &cobra.Command{
 			_ = repo.Commit(msg)
 		}
 
-		fmt.Fprintln(out, cli.Success(out,
+		cli.Print(out, cli.Success(
+			out,
 			fmt.Sprintf("task marked done: %s", cli.Accent(out, desc)),
 		))
 		return nil
@@ -98,6 +101,7 @@ var taskDoneCmd = &cobra.Command{
 func init() {
 	taskDoneCmd.Flags().StringVar(&taskDoneSlugFlag, "slug", "", "note slug containing the task")
 	_ = taskDoneCmd.MarkFlagRequired("slug")
-	taskDoneCmd.Flags().StringVar(&taskDoneDescFlag, "desc", "", "task description (substring match)")
+	taskDoneCmd.Flags().
+		StringVar(&taskDoneDescFlag, "desc", "", "task description (substring match)")
 	_ = taskDoneCmd.MarkFlagRequired("desc")
 }

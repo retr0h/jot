@@ -57,15 +57,16 @@ var gitDiffCmd = &cobra.Command{
 		}
 
 		if diff == "" {
-			fmt.Fprintln(out, cli.Mute(out, "working tree clean"))
+			cli.Print(out, cli.Mute(out, "working tree clean"))
 			return nil
 		}
 
-		fmt.Fprint(out, diff)
+		cli.Printf(out, "%s", diff)
 		return nil
 	},
 }
 
 func init() {
-	gitDiffCmd.Flags().StringVar(&gitDiffSlugFlag, "slug", "", "filter diff to a specific note slug")
+	gitDiffCmd.Flags().
+		StringVar(&gitDiffSlugFlag, "slug", "", "filter diff to a specific note slug")
 }

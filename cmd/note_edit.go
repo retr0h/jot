@@ -58,7 +58,7 @@ var noteEditCmd = &cobra.Command{
 			_ = repo.Commit(msg)
 		}
 
-		fmt.Fprintln(out, cli.Success(out, "note updated: "+cli.Accent(out, slug)))
+		cli.Print(out, cli.Success(out, "note updated: "+cli.Accent(out, slug)))
 		return nil
 	},
 }

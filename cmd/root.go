@@ -35,7 +35,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/config"
 )
 
 // logger is the package-level slog logger, populated from initLogger
@@ -44,7 +43,6 @@ import (
 var (
 	logger     = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	jsonOutput bool
-	appConfig  config.Config
 )
 
 var rootCmd = &cobra.Command{
@@ -132,14 +130,6 @@ func initConfig() {
 	viper.SetDefault("editor", "")
 	viper.SetDefault("notes_dir", "")
 
-	// Populate the package-level appConfig for subcommands that prefer
-	// the struct over individual viper lookups.
-	appConfig = config.Config{
-		Config:   ConfigDir(),
-		Editor:   viper.GetString("editor"),
-		NotesDir: NotesDir(),
-		Debug:    viper.GetBool("debug"),
-	}
 }
 
 // initLogger swaps the package-level logger to a tint handler with

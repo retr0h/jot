@@ -230,7 +230,13 @@ func TestFormatCommitMessage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := gitops.FormatCommitMessage(tt.subject, tt.body)
 			if got != tt.want {
-				t.Errorf("FormatCommitMessage(%q, %q)\n  got  %q\n  want %q", tt.subject, tt.body, got, tt.want)
+				t.Errorf(
+					"FormatCommitMessage(%q, %q)\n  got  %q\n  want %q",
+					tt.subject,
+					tt.body,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}

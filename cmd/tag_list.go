@@ -46,7 +46,7 @@ var tagListCmd = &cobra.Command{
 
 		sort.Strings(tags)
 		for _, tag := range tags {
-			fmt.Fprintln(out, cli.Accent(out, tag))
+			cli.Print(out, cli.Accent(out, tag))
 		}
 
 		return nil

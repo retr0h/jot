@@ -74,11 +74,21 @@ func TestParseTasks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := jot.ParseTasks(tt.content)
 			if len(got) != tt.wantCount {
-				t.Errorf("ParseTasks(%q): got %d tasks, want %d", tt.content, len(got), tt.wantCount)
+				t.Errorf(
+					"ParseTasks(%q): got %d tasks, want %d",
+					tt.content,
+					len(got),
+					tt.wantCount,
+				)
 			}
 			if tt.wantCount > 0 && tt.wantDesc != "" {
 				if got[0].Description != tt.wantDesc {
-					t.Errorf("ParseTasks(%q): first desc = %q, want %q", tt.content, got[0].Description, tt.wantDesc)
+					t.Errorf(
+						"ParseTasks(%q): first desc = %q, want %q",
+						tt.content,
+						got[0].Description,
+						tt.wantDesc,
+					)
 				}
 			}
 		})

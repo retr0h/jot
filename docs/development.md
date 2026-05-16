@@ -1,8 +1,25 @@
-# Development
+# Development Guide
 
-Architecture reference for contributors working on jot internals.
+## Prerequisites
 
-## Architecture
+Install tools using [mise](https://mise.jdx.dev/):
+
+```bash
+mise install
+```
+
+- **[Go](https://go.dev)** >= 1.25
+- **[just](https://just.systems)** — task runner
+
+## Quick Start
+
+```bash
+git clone https://github.com/retr0h/jot.git
+cd jot
+go test ./...
+```
+
+## Layout
 
 ```
 jot (binary)
@@ -14,6 +31,24 @@ jot (binary)
 │   ├── jot/            core domain — parser (@task), editor, slug, date, kvlt
 │   ├── mcp/            MCP server (stdio, JSON-RPC via go-sdk)
 │   └── version/        build-time identity (ldflags injected)
+├── lua/jot/            nvim plugin (obsidian.nvim integration)
+├── plugin/             nvim auto-load entry point
+```
+
+## Common Tasks
+
+```bash
+go test ./...              # run tests
+go vet ./...               # vet
+gofmt -l .                 # find unformatted files
+```
+
+Or via just:
+
+```bash
+just deps
+just test
+just ready          # fmt + vet + lint
 ```
 
 ## Key Invariants
@@ -38,44 +73,96 @@ the resolved `@task(...)` form in place. Editing the file in nvim leaves
 both forms valid; the parser accepts either on the next read.
 
 **`[[slug]]` links.** Wiki-style links reference other notes by slug.
-obsidian.nvim resolves `gf` and autocompletes on `[[`. jot itself does
+obsidian.nvim resolves them and autocompletes on `[[`. jot itself does
 not validate links at write time — broken links surface in the nvim UI.
 
 **Tags in frontmatter.** Tags are YAML `tags:` arrays in frontmatter.
 `@task` markers carry `#tag` annotations outside the parentheses. Both
 surfaces are queryable via `jot tag list` and the MCP `list_notes` tool.
 
-**Interfaces where consumed.** The MCP server defines its own `storer`
-interface in `internal/mcp/` rather than depending on a concrete type
-from `internal/jot/`. The cobra commands follow the same pattern — each
+**Interfaces where consumed.** The MCP server defines its own interfaces
+in `internal/mcp/` rather than depending on a concrete type from
+`internal/jot/`. The cobra commands follow the same pattern — each
 command file declares a narrow interface for the operations it needs.
 
-## Building
+## Testing Conventions
 
-```bash
-go build -o jot .
-go run . --help
+**Every public function and method MUST have a table-driven test.** One
+table per function, with rows covering both the happy path and every
+failure mode the function can produce.
+
+> **Anti-pattern (do not do this):** writing a separate one-off test
+> function for a failure scenario. If you find yourself drafting a
+> `TestFoo_ReturnsErrorOnEmpty`, stop — instead add a row to the
+> existing `TestFoo` table. Each public function gets exactly **one**
+> `Test*` function in the codebase.
+
+### File naming (non-negotiable)
+
+**One test file per production file.** `notes.go` is tested by
+`notes_test.go` — never `helpers_notes_test.go` or similar. If tests
+outgrow one file, split the production file first.
+
+Two exceptions: shared fixtures in `helpers_test.go` / `fakes_test.go`,
+and `main_test.go` for `TestMain`.
+
+### Table shape
+
+For pure functions:
+
+```go
+func TestParseDate(t *testing.T) {
+    cases := []struct {
+        name    string
+        input   string
+        want    string
+        wantErr bool
+    }{
+        {"explicit date", "2026-05-20", "2026-05-20", false},
+        {"today", "today", "2026-05-14", false},
+        {"invalid", "nope", "", true},
+    }
+    for _, c := range cases {
+        t.Run(c.name, func(t *testing.T) { ... })
+    }
+}
 ```
 
-With version info injected (done automatically by GoReleaser):
+### Required failure rows
 
-```bash
-go build -ldflags "-X github.com/retr0h/jot/internal/version.Version=1.2.3" -o jot .
-```
+Every function's table MUST include rows covering:
 
-## Testing
+| Scenario        | What to test                                        |
+| --------------- | --------------------------------------------------- |
+| Happy path      | Expected input produces expected output              |
+| Empty input     | Empty string / nil / zero value handled gracefully   |
+| Invalid input   | Malformed data returns an error, doesn't panic       |
+| Edge cases      | Boundary values, duplicates, unicode, path traversal |
 
-```bash
-# Full suite with race detector
-go test -race ./...
+### Test naming
 
-# Single package
-go test -race ./internal/jot/...
+- Pure functions: `TestFunctionName`.
+- Methods on a type: `TestType_Method`.
+- Helper / unexported: `Test_helperName`.
 
-# With coverage
-go test -race -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out
-```
+## Adding a Command
+
+1. Create `cmd/<parent>_<name>.go` (e.g. `note_edit.go`).
+2. Define a `*cobra.Command` with `Args: cobra.NoArgs` — use flags for
+   all inputs, never positional args. Mark required flags with
+   `cobra.MarkFlagRequired`.
+3. Register in `init()` via the parent subcommand.
+4. Declare a narrow interface for the operations the command needs.
+5. Pair with `cmd/<parent>_<name>_test.go` with table-driven tests.
+6. Run `just ready`.
+
+## Error Handling
+
+- Every exported function returns `(T, error)` or `error`.
+- Wrap errors with context: `fmt.Errorf("open store: %w", err)`.
+- Exported functions never panic; they always return errors.
+- Use `cli.Print`/`cli.Printf` for stdout output (never unchecked
+  `fmt.Fprint*`).
 
 ## Data Directory Layout
 
@@ -83,14 +170,13 @@ go tool cover -html=coverage.out
 ~/.config/jot/
 ├── jot.yaml           # user config (created by jot init)
 └── notes/
-    ├── meeting-notes-20260514.md
-    ├── deployment-runbook-20260201.md
+    ├── *.md           # plain notes
+    ├── subdir/*.md    # nested notes
     └── .git/          # git repo tracking the notes directory
 ```
 
-Override via `--config` flag or the `JOT_CONFIG_DIR` environment
-variable. The notes directory is overridden independently with
-`JOT_NOTES_DIR`.
+Override via `--config` flag or `JOT_CONFIG_DIR` env var. Notes
+directory overridden independently with `JOT_NOTES_DIR`.
 
 ## Note Format
 
@@ -112,16 +198,16 @@ Steps before promoting to production. See also [[pre-deploy-checklist]].
 - [ ] Tag release
 ```
 
-## `@task` Syntax
+## @task Syntax
 
-| Form | Example |
-| ---- | ------- |
-| Bare | `@task description #tag` |
-| Resolved | `@task(description \| due:YYYY-MM-DD) #tag` |
+| Form      | Example                                                        |
+| --------- | -------------------------------------------------------------- |
+| Bare      | `@task description #tag`                                       |
+| Resolved  | `@task(description \| due:YYYY-MM-DD) #tag`                    |
 | With done | `@task(description \| due:2026-05-14 \| done:2026-05-15) #tag` |
 
 Natural language dates accepted by `due:`: `today`, `tomorrow`,
-`monday` … `sunday`, `next week`, `YYYY-MM-DD`.
+`monday`...`sunday`, `next week`, `YYYY-MM-DD`.
 
 ## Color Palette (Max Headroom)
 
@@ -153,13 +239,15 @@ The server is spawned per agent session over stdio. When the agent
 disconnects the process exits and any open resources are closed via
 deferred cleanup.
 
-## Adding a Command
+## Commit Messages
 
-1. Create `cmd/<parent>_<name>.go` (e.g. `note_edit.go`).
-2. Define a `*cobra.Command` with `Args: cobra.NoArgs` — use flags
-   for all inputs, never positional args. Mark required flags with
-   `cobra.MarkFlagRequired`.
-3. Register in `init()` via the parent subcommand.
-4. Declare a narrow interface for the operations the command needs.
-5. Pair with `cmd/<parent>_<name>_test.go` with table-driven tests.
-6. Run `just ready`.
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+- **Subject line**: max 50 characters, imperative mood, capitalized, no
+  period
+- **Body**: wrap at 72 characters, separated from subject by a blank
+  line
+- **Format**: `type(scope): description`
+- **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
+  `chore`
+- **Scopes**: `cli`, `jot`, `gitops`, `mcp`, `docs`, `nvim`

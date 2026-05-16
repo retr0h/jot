@@ -34,8 +34,10 @@ import (
 	"github.com/retr0h/jot/internal/jot"
 )
 
-var noteSecureFlag bool
-var noteNewTitleFlag string
+var (
+	noteSecureFlag   bool
+	noteNewTitleFlag string
+)
 
 // noteNewCmd implements `jot note new --title <title> [--secure]`.
 // A "/" in the title splits into subdir + title so
@@ -87,13 +89,15 @@ var noteNewCmd = &cobra.Command{
 			_ = repo.Commit(msg)
 		}
 
-		fmt.Fprintln(out, cli.Success(out, "note created: "+cli.Accent(out, slug)))
+		cli.Print(out, cli.Success(out, "note created: "+cli.Accent(out, slug)))
 		return nil
 	},
 }
 
 func init() {
-	noteNewCmd.Flags().StringVar(&noteNewTitleFlag, "title", "", "note title (use path/title for subdirs)")
+	noteNewCmd.Flags().
+		StringVar(&noteNewTitleFlag, "title", "", "note title (use path/title for subdirs)")
 	_ = noteNewCmd.MarkFlagRequired("title")
-	noteNewCmd.Flags().BoolVar(&noteSecureFlag, "secure", false, "mark note as secure (sets secure: true in front-matter)")
+	noteNewCmd.Flags().
+		BoolVar(&noteSecureFlag, "secure", false, "mark note as secure (sets secure: true in front-matter)")
 }

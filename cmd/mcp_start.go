@@ -70,7 +70,7 @@ anything else there would corrupt the protocol.
 		if err != nil {
 			return fmt.Errorf("mcp start: %w", err)
 		}
-		defer s.Close()
+		defer func() { _ = s.Close() }()
 
 		var srv mcpRunner = s
 		return srv.Run(ctx)

@@ -60,7 +60,7 @@ var gitLogCmd = &cobra.Command{
 		for _, e := range entries {
 			hash := cli.Hash(out, e.Hash)
 			date := cli.Mute(out, e.Date.Format("2006-01-02"))
-			fmt.Fprintf(out, "%s  %s  %s\n", hash, e.Message, date)
+			cli.Printf(out, "%s  %s  %s\n", hash, e.Message, date)
 		}
 
 		return nil

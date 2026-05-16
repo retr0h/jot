@@ -25,11 +25,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/retr0h/jot/internal/cli"
 	"github.com/retr0h/jot/internal/gitops"
 )
 
-var gitShowNoteFlag string
-var gitShowCommitFlag string
+var (
+	gitShowNoteFlag   string
+	gitShowCommitFlag string
+)
 
 // gitShowCmd implements `jot git show --commit <hash> [--note slug]`.
 // Prints the patch for the given commit hash, optionally filtered to a note.
@@ -57,7 +60,7 @@ var gitShowCmd = &cobra.Command{
 			return fmt.Errorf("git show: %w", err)
 		}
 
-		fmt.Fprint(out, patch)
+		cli.Printf(out, "%s", patch)
 		return nil
 	},
 }

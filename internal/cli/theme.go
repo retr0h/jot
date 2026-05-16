@@ -23,6 +23,7 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -156,3 +157,14 @@ func Done(w io.Writer, s string) string { return render(w, active.OK, s) }
 
 // Hash returns s rendered in the info/cyan color, used for git commit hashes.
 func Hash(w io.Writer, s string) string { return render(w, active.Info, s) }
+
+// Print writes a line to w. Errors writing to stdout are ignored —
+// if stdout is broken, the process is about to die anyway.
+func Print(w io.Writer, s string) {
+	_, _ = fmt.Fprintln(w, s)
+}
+
+// Printf writes a formatted string to w.
+func Printf(w io.Writer, format string, a ...any) {
+	_, _ = fmt.Fprintf(w, format, a...)
+}

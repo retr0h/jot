@@ -1,7 +1,7 @@
 # Contributing
 
-Thanks for wanting to make jot better. This guide covers the conventions
-you need to follow for a smooth PR review.
+Thanks for wanting to make jot better. This guide covers the conventions you
+need to follow for a smooth PR review.
 
 ## Prerequisites
 
@@ -13,14 +13,13 @@ you need to follow for a smooth PR review.
 
 1. Fork the repo and create a branch from `main`.
 2. Make your changes with tests.
-3. Run `just ready` before pushing — it formats, lints, and runs the full
-   test suite.
+3. Run `just ready` before pushing — it formats, lints, and runs the full test
+   suite.
 4. Open a pull request against `main`.
 
 ## Commit Style
 
-jot follows [Conventional Commits]. Every commit message must have a
-type prefix:
+jot follows [Conventional Commits]. Every commit message must have a type prefix:
 
 ```
 feat: add tag autocomplete to nvim plugin
@@ -71,20 +70,20 @@ if err := store.IndexNote(id, title, content); err != nil {
 }
 ```
 
-Sentinel errors use `errors.New` at package level; error types implement
-the `error` interface and are named with an `Err` prefix or `Error`
-suffix per `errname` lint rules.
+Sentinel errors use `errors.New` at package level; error types implement the
+`error` interface and are named with an `Err` prefix or `Error` suffix per
+`errname` lint rules.
 
 ### No inline hex colors
 
-All palette values live in `internal/cli/theme.go` as named constants.
-Never pass a raw hex string to lipgloss in command or handler code.
+All palette values live in `internal/cli/theme.go` as named constants. Never
+pass a raw hex string to lipgloss in command or handler code.
 
 ### Interfaces where consumed
 
-Define interfaces in the package that consumes them, not the package
-that provides the implementation. The MCP server's `storer` interface
-lives in `internal/mcp/`, not in `internal/jot/`.
+Define interfaces in the package that consumes them, not the package that
+provides the implementation. The MCP server's `storer` interface lives in
+`internal/mcp/`, not in `internal/jot/`.
 
 ## Linting
 
@@ -102,13 +101,13 @@ just go::vet    # go vet
 just go::lint   # golangci-lint run
 ```
 
-Enabled linters: `errcheck`, `errname`, `govet`, `prealloc`,
-`predeclared`, `revive`, `staticcheck`.
+Enabled linters: `errcheck`, `errname`, `govet`, `prealloc`, `predeclared`,
+`revive`, `staticcheck`.
 
 ## Testing
 
-Every `.go` file must have a paired `_test.go` file. Tests are
-table-driven using subtests:
+Every `.go` file must have a paired `_test.go` file. Tests are table-driven
+using subtests:
 
 ```go
 func TestParseTasks(t *testing.T) {

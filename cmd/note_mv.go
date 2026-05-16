@@ -35,8 +35,10 @@ import (
 	"github.com/retr0h/jot/internal/jot"
 )
 
-var noteMvSlugFlag string
-var noteMvTitleFlag string
+var (
+	noteMvSlugFlag  string
+	noteMvTitleFlag string
+)
 
 // noteMvCmd implements `jot note mv --slug <old-slug> --title <new-title>`.
 // Renames the note file, rewrites the frontmatter title and first heading,
@@ -86,7 +88,8 @@ var noteMvCmd = &cobra.Command{
 			_ = repo.Commit(msg)
 		}
 
-		fmt.Fprintln(out, cli.Success(out,
+		cli.Print(out, cli.Success(
+			out,
 			"note renamed: "+cli.Mute(out, oldSlug)+" -> "+cli.Accent(out, newSlug),
 		))
 		return nil
