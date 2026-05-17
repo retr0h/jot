@@ -43,7 +43,7 @@ import (
 // after cobra parses persistent flags. CLI subcommands log through it
 // directly.
 var (
-	appConfig  config.Config
+	appConfig  config.AppConfig
 	svc        *jot.Service
 	logger     = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	jsonOutput bool
@@ -82,7 +82,7 @@ func Execute() {
 
 // ConfigDir returns the resolved jot config directory.
 func ConfigDir() string {
-	return appConfig.Config
+	return appConfig.Dir
 }
 
 // NotesDir returns the directory where jot stores note files.
@@ -134,12 +134,12 @@ func initConfig() {
 	_ = viper.Unmarshal(&appConfig)
 
 	if appConfig.NotesDir == "" {
-		appConfig.NotesDir = filepath.Join(appConfig.Config, "notes")
+		appConfig.NotesDir = filepath.Join(appConfig.Dir, "notes")
 	}
 
 	svc = &jot.Service{
 		NotesDir:  appConfig.NotesDir,
-		ConfigDir: appConfig.Config,
+		ConfigDir: appConfig.Dir,
 		SSHKeys:   appConfig.SSHKeys,
 		Prompt:    cli.PassphrasePrompt,
 	}

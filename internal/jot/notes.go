@@ -36,8 +36,7 @@ import (
 
 var headingRe = regexp.MustCompile(`(?m)^#\s+(.+)$`)
 
-// Note is a markdown note backed by a .md file on disk. SQLite is not
-// involved; the file is the single source of truth.
+// Note is a markdown note backed by a .md file on disk.
 type Note struct {
 	Slug    string   `json:"slug"`
 	Title   string   `json:"title"`
@@ -57,14 +56,14 @@ type Task struct {
 	DueDate     string   `json:"due_date"`
 	DoneDate    string   `json:"done_date"`
 	Tags        []string `json:"tags"`
-	Done        string   `json:"done"`
+	Done        bool     `json:"done"`
 	Line        int      `json:"line"`
 }
 
-// ReadNote reads the .md file at path, parses its front-matter, @task markers,
+// readNote reads the .md file at path, parses its front-matter, @task markers,
 // and [[wiki-links]], then returns a fully-populated Note. Title falls back to
 // the first level-1 heading when the front-matter title is empty.
-func ReadNote(path string) (*Note, error) {
+func readNote(path string) (*Note, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("jot: read note %q: %w", path, err)
@@ -86,16 +85,12 @@ func ReadNote(path string) (*Note, error) {
 	raw := ParseTasks(body)
 	tasks := make([]Task, 0, len(raw))
 	for _, r := range raw {
-		done := ""
-		if r.Done {
-			done = "done"
-		}
 		t := Task{
 			NoteSlug:    slug,
 			Description: r.Description,
 			DueDate:     r.DueDate,
 			DoneDate:    r.DoneDate,
-			Done:        done,
+			Done:        r.Done,
 			Line:        r.Line,
 		}
 		t.Tags = r.Labels
@@ -117,10 +112,10 @@ func ReadNote(path string) (*Note, error) {
 	}, nil
 }
 
-// ReadAllNotes walks notesDir (skipping .git) and reads every .md file
+// readAllNotes walks notesDir (skipping .git) and reads every .md file
 // concurrently. Errors on individual files are collected and returned as a
 // combined error so that a single bad file does not abort the entire scan.
-func ReadAllNotes(notesDir string) ([]*Note, error) {
+func readAllNotes(notesDir string) ([]*Note, error) {
 	var paths []string
 	if err := filepath.WalkDir(notesDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -148,7 +143,7 @@ func ReadAllNotes(notesDir string) ([]*Note, error) {
 	for i, p := range paths {
 		go func() {
 			defer wg.Done()
-			n, err := ReadNote(p)
+			n, err := readNote(p)
 			results[i] = result{note: n, err: err}
 		}()
 	}
@@ -169,11 +164,11 @@ func ReadAllNotes(notesDir string) ([]*Note, error) {
 	return notes, nil
 }
 
-// ListNotes returns all notes in notesDir, optionally filtered to those whose
+// listNotes returns all notes in notesDir, optionally filtered to those whose
 // frontmatter tags or inline tags include tagFilter. Pass an empty string to
 // return all notes.
-func ListNotes(notesDir string, tagFilter string) ([]*Note, error) {
-	notes, err := ReadAllNotes(notesDir)
+func listNotes(notesDir string, tagFilter string) ([]*Note, error) {
+	notes, err := readAllNotes(notesDir)
 	if err != nil {
 		return nil, err
 	}
@@ -189,10 +184,10 @@ func ListNotes(notesDir string, tagFilter string) ([]*Note, error) {
 	return filtered, nil
 }
 
-// SearchNotes performs a case-insensitive substring search across note titles
+// searchNotes performs a case-insensitive substring search across note titles
 // and bodies. All notes that contain query in either field are returned.
-func SearchNotes(notesDir string, query string) ([]*Note, error) {
-	notes, err := ReadAllNotes(notesDir)
+func searchNotes(notesDir string, query string) ([]*Note, error) {
+	notes, err := readAllNotes(notesDir)
 	if err != nil {
 		return nil, err
 	}
@@ -207,25 +202,25 @@ func SearchNotes(notesDir string, query string) ([]*Note, error) {
 	return matched, nil
 }
 
-// FindNote reads and returns the note at notesDir/slug.md.
-func FindNote(notesDir string, slug string) (*Note, error) {
+// findNote reads and returns the note at notesDir/slug.md.
+func findNote(notesDir string, slug string) (*Note, error) {
 	path := filepath.Join(notesDir, slug+".md")
-	n, err := ReadNote(path)
+	n, err := readNote(path)
 	if err != nil {
 		return nil, fmt.Errorf("jot: find note %q: %w", slug, err)
 	}
 	return n, nil
 }
 
-// AllTasks aggregates all tasks from every note in notesDir. status filters by
-// "open" (Done == ""), "done" (Done != ""), or "all". tagFilter restricts to
-// tasks whose Tags contain the given value; pass "" to skip tag filtering.
-func AllTasks(
+// allTasks aggregates all tasks from every note in notesDir. status filters by
+// "open" (Done == false), "done" (Done == true), or "all". tagFilter restricts
+// to tasks whose Tags contain the given value; pass "" to skip tag filtering.
+func allTasks(
 	notesDir string,
 	status string,
 	tagFilter string,
 ) ([]Task, error) {
-	notes, err := ReadAllNotes(notesDir)
+	notes, err := readAllNotes(notesDir)
 	if err != nil {
 		return nil, err
 	}
@@ -245,15 +240,15 @@ func AllTasks(
 	return tasks, nil
 }
 
-// TasksDue returns open tasks whose DueDate falls within [from, to] inclusive.
+// tasksDue returns open tasks whose DueDate falls within [from, to] inclusive.
 // Dates are compared as YYYY-MM-DD strings (lexicographic order is correct for
 // ISO-8601 dates).
-func TasksDue(
+func tasksDue(
 	notesDir string,
 	from time.Time,
 	to time.Time,
 ) ([]Task, error) {
-	notes, err := ReadAllNotes(notesDir)
+	notes, err := readAllNotes(notesDir)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +260,7 @@ func TasksDue(
 	var tasks []Task
 	for _, n := range notes {
 		for _, t := range n.Tasks {
-			if t.Done != "" {
+			if t.Done {
 				continue
 			}
 			if t.DueDate == "" {
@@ -279,11 +274,11 @@ func TasksDue(
 	return tasks, nil
 }
 
-// AllTags returns the deduplicated union of all tags across the notes in
+// allTags returns the deduplicated union of all tags across the notes in
 // notesDir. Sources: frontmatter tags, inline #tags in the body, and task
 // tags.
-func AllTags(notesDir string) ([]string, error) {
-	notes, err := ReadAllNotes(notesDir)
+func allTags(notesDir string) ([]string, error) {
+	notes, err := readAllNotes(notesDir)
 	if err != nil {
 		return nil, err
 	}
@@ -318,16 +313,59 @@ func hasLabel(labels []string, value string) bool {
 }
 
 // matchStatus reports whether task t matches the requested status filter.
-// "open" requires Done == "", "done" requires Done != "", "all" always matches.
+// "open" requires Done == false, "done" requires Done == true, "all" always matches.
 func matchStatus(t Task, status string) bool {
 	switch status {
 	case "done":
-		return t.Done != ""
+		return t.Done
 	case "open":
-		return t.Done == ""
+		return !t.Done
 	default: // "all" or ""
 		return true
 	}
+}
+
+// markTaskDone finds the first open task in notePath whose description
+// contains desc (case-insensitive substring), marks it done, and writes
+// the file back.
+func markTaskDone(
+	notePath string,
+	desc string,
+) error {
+	content, err := os.ReadFile(notePath)
+	if err != nil {
+		return fmt.Errorf("read note %q: %w", notePath, err)
+	}
+
+	lower := strings.ToLower(desc)
+	lines := strings.Split(string(content), "\n")
+	found := false
+
+	for i, line := range lines {
+		tasks := ParseTasks(line)
+		for _, t := range tasks {
+			if t.Done {
+				continue
+			}
+			if !strings.Contains(strings.ToLower(t.Description), lower) {
+				continue
+			}
+			t.Done = true
+			t.DoneDate = time.Now().Format("2006-01-02")
+			lines[i] = FormatTask(t)
+			found = true
+			break
+		}
+		if found {
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("no open task matching %q found in %s", desc, notePath)
+	}
+
+	return os.WriteFile(notePath, []byte(strings.Join(lines, "\n")), 0o600)
 }
 
 // titleFromBody extracts the text of the first level-1 heading from body.

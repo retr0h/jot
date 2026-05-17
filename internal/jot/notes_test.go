@@ -23,7 +23,7 @@ package jot_test
 import (
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -55,9 +55,14 @@ func writeNote(t *testing.T, dir, slug, content string) string {
 	return path
 }
 
-// ─── ReadNote ────────────────────────────────────────────────────────────────
+// newSvc returns a Service rooted at dir with no encryption config.
+func newSvc(dir string) *jot.Service {
+	return &jot.Service{NotesDir: dir}
+}
 
-func TestReadNote(t *testing.T) {
+// ─── ReadNoteByPath ───────────────────────────────────────────────────────────
+
+func TestReadNoteByPath(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -120,16 +125,17 @@ func TestReadNote(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			path := tt.setup(t, dir)
+			svc := newSvc(dir)
 
-			got, err := jot.ReadNote(path)
+			got, err := svc.ReadNoteByPath(path)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatal("ReadNote: expected error, got nil")
+					t.Fatal("ReadNoteByPath: expected error, got nil")
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("ReadNote: unexpected error: %v", err)
+				t.Fatalf("ReadNoteByPath: unexpected error: %v", err)
 			}
 
 			if got.Title != tt.wantTitle {
@@ -232,8 +238,9 @@ func TestReadAllNotes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dir := tt.setup(t)
+			svc := newSvc(dir)
 
-			got, err := jot.ReadAllNotes(dir)
+			got, err := svc.ReadAllNotes()
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("ReadAllNotes: expected error, got nil")
@@ -302,8 +309,9 @@ created: 2026-05-14
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dir := setupDir(t)
+			svc := newSvc(dir)
 
-			got, err := jot.ListNotes(dir, tt.tagFilter)
+			got, err := svc.ListNotes(tt.tagFilter)
 			if err != nil {
 				t.Fatalf("ListNotes: unexpected error: %v", err)
 			}
@@ -379,8 +387,9 @@ Random thoughts about coffee.
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dir := setupDir(t)
+			svc := newSvc(dir)
 
-			got, err := jot.SearchNotes(dir, tt.query)
+			got, err := svc.SearchNotes(tt.query)
 			if err != nil {
 				t.Fatalf("SearchNotes: unexpected error: %v", err)
 			}
@@ -391,9 +400,9 @@ Random thoughts about coffee.
 	}
 }
 
-// ─── FindNote ────────────────────────────────────────────────────────────────
+// ─── FindNoteBySlug ──────────────────────────────────────────────────────────
 
-func TestFindNote(t *testing.T) {
+func TestFindNoteBySlug(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -422,16 +431,17 @@ func TestFindNote(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			tt.setup(t, dir)
+			svc := newSvc(dir)
 
-			got, err := jot.FindNote(dir, tt.slug)
+			got, err := svc.FindNoteBySlug(tt.slug)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatal("FindNote: expected error, got nil")
+					t.Fatal("FindNoteBySlug: expected error, got nil")
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("FindNote: unexpected error: %v", err)
+				t.Fatalf("FindNoteBySlug: unexpected error: %v", err)
 			}
 			if got.Slug != tt.slug {
 				t.Errorf("Slug = %q, want %q", got.Slug, tt.slug)
@@ -507,8 +517,9 @@ func TestAllTasks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dir := tt.setup(t)
+			svc := newSvc(dir)
 
-			got, err := jot.AllTasks(dir, tt.status, tt.tagFilter)
+			got, err := svc.AllTasks(tt.status, tt.tagFilter)
 			if err != nil {
 				t.Fatalf("AllTasks: unexpected error: %v", err)
 			}
@@ -582,8 +593,9 @@ func TestTasksDue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dir := tt.setup(t)
+			svc := newSvc(dir)
 
-			got, err := jot.TasksDue(dir, tt.from, tt.to)
+			got, err := svc.TasksDue(tt.from, tt.to)
 			if err != nil {
 				t.Fatalf("TasksDue: unexpected error: %v", err)
 			}
@@ -646,13 +658,14 @@ Some text #work and - [ ] do thing #work
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dir := tt.setup(t)
+			svc := newSvc(dir)
 
-			got, err := jot.AllTags(dir)
+			got, err := svc.AllTags()
 			if err != nil {
 				t.Fatalf("AllTags: unexpected error: %v", err)
 			}
 
-			sort.Strings(got)
+			slices.Sort(got)
 
 			if len(got) != len(tt.wantTags) {
 				t.Errorf("tags = %v, want %v", got, tt.wantTags)

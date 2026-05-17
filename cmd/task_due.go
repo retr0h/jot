@@ -28,7 +28,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 var taskDuePeriodFlag string
@@ -61,7 +60,7 @@ var taskDueCmd = &cobra.Command{
 			to = today.AddDate(0, 0, 7)
 		}
 
-		tasks, err := jot.TasksDue(NotesDir(), from, to)
+		tasks, err := svc.TasksDue(from, to)
 		if err != nil {
 			return fmt.Errorf("tasks due: %w", err)
 		}

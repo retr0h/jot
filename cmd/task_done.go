@@ -22,13 +22,11 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
 	"github.com/retr0h/jot/internal/gitops"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 var (
@@ -65,9 +63,7 @@ var taskDoneCmd = &cobra.Command{
 			}
 		}
 
-		notePath := filepath.Join(notesDir, slug+".md")
-
-		if err := jot.MarkTaskDone(notePath, desc); err != nil {
+		if err := svc.MarkTaskDone(slug, desc); err != nil {
 			return err
 		}
 
