@@ -26,7 +26,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 var noteSearchQueryFlag string
@@ -42,7 +41,7 @@ var noteSearchCmd = &cobra.Command{
 		out := c.OutOrStdout()
 		query := noteSearchQueryFlag
 
-		notes, err := jot.SearchNotes(NotesDir(), query)
+		notes, err := svc.SearchNotes(query)
 		if err != nil {
 			return fmt.Errorf("search notes: %w", err)
 		}

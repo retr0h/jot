@@ -27,7 +27,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 // noteCmd is the parent for `jot note` — all note management subcommands.
@@ -46,8 +45,8 @@ func init() {
 	rootCmd.AddCommand(noteCmd)
 }
 
-func pickNote(notesDir string) (string, error) {
-	notes, err := jot.ListNotes(notesDir, "")
+func pickNote(_ string) (string, error) {
+	notes, err := svc.ListNotes("")
 	if err != nil {
 		return "", fmt.Errorf("list notes: %w", err)
 	}

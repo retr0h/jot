@@ -27,7 +27,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 // taskCmd is the parent for `jot task` — all task management subcommands.
@@ -50,8 +49,8 @@ func init() {
 	rootCmd.AddCommand(taskCmd)
 }
 
-func pickTask(notesDir string) (string, string, error) {
-	tasks, err := jot.AllTasks(notesDir, "open", "")
+func pickTask(_ string) (string, string, error) {
+	tasks, err := svc.AllTasks("open", "")
 	if err != nil {
 		return "", "", fmt.Errorf("list tasks: %w", err)
 	}

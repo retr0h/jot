@@ -22,6 +22,7 @@ package jot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -44,7 +45,7 @@ type Service struct {
 // CatNote returns the body of a note by slug, transparently decrypting
 // from kvlt if the note is marked secure.
 func (s *Service) CatNote(slug string) (string, error) {
-	note, err := FindNote(s.NotesDir, slug)
+	note, err := findNote(s.NotesDir, slug)
 	if err != nil {
 		return "", err
 	}
@@ -63,7 +64,7 @@ func (s *Service) CatNote(slug string) (string, error) {
 // EncryptNote encrypts an existing plaintext note. The body is stored in
 // kvlt and the .md file is rewritten with secure: true.
 func (s *Service) EncryptNote(slug string) error {
-	note, err := FindNote(s.NotesDir, slug)
+	note, err := findNote(s.NotesDir, slug)
 	if err != nil {
 		return err
 	}
@@ -96,7 +97,7 @@ func (s *Service) EncryptNote(slug string) error {
 // DecryptNote restores a secure note to plaintext. The body is read from
 // kvlt, written back into the .md file, and removed from the vault.
 func (s *Service) DecryptNote(slug string) error {
-	note, err := FindNote(s.NotesDir, slug)
+	note, err := findNote(s.NotesDir, slug)
 	if err != nil {
 		return err
 	}
@@ -167,17 +168,17 @@ func (s *Service) RenameNote(
 
 // ListNotes returns all notes, optionally filtered by tag.
 func (s *Service) ListNotes(tagFilter string) ([]*Note, error) {
-	return ListNotes(s.NotesDir, tagFilter)
+	return listNotes(s.NotesDir, tagFilter)
 }
 
 // SearchNotes performs a case-insensitive substring search.
 func (s *Service) SearchNotes(query string) ([]*Note, error) {
-	return SearchNotes(s.NotesDir, query)
+	return searchNotes(s.NotesDir, query)
 }
 
 // FindNoteBySlug reads and returns the note at notesDir/slug.md.
 func (s *Service) FindNoteBySlug(slug string) (*Note, error) {
-	return FindNote(s.NotesDir, slug)
+	return findNote(s.NotesDir, slug)
 }
 
 // AllTasks aggregates all tasks, filtered by status and tag.
@@ -185,7 +186,7 @@ func (s *Service) AllTasks(
 	status string,
 	tagFilter string,
 ) ([]Task, error) {
-	return AllTasks(s.NotesDir, status, tagFilter)
+	return allTasks(s.NotesDir, status, tagFilter)
 }
 
 // TasksDue returns open tasks due within [from, to].
@@ -193,12 +194,12 @@ func (s *Service) TasksDue(
 	from time.Time,
 	to time.Time,
 ) ([]Task, error) {
-	return TasksDue(s.NotesDir, from, to)
+	return tasksDue(s.NotesDir, from, to)
 }
 
 // AllTags returns deduplicated tags across all notes.
 func (s *Service) AllTags() ([]string, error) {
-	return AllTags(s.NotesDir)
+	return allTags(s.NotesDir)
 }
 
 // MarkTaskDone marks a task as complete in the given note.
@@ -207,7 +208,17 @@ func (s *Service) MarkTaskDone(
 	desc string,
 ) error {
 	notePath := filepath.Join(s.NotesDir, slug+".md")
-	return MarkTaskDone(notePath, desc)
+	return markTaskDone(notePath, desc)
+}
+
+// ReadNoteByPath reads and returns the note at the given absolute path.
+func (s *Service) ReadNoteByPath(path string) (*Note, error) {
+	return readNote(path)
+}
+
+// ReadAllNotes walks the notes directory and returns all notes.
+func (s *Service) ReadAllNotes() ([]*Note, error) {
+	return readAllNotes(s.NotesDir)
 }
 
 // CreateNote creates a new note with the given title and content. If secure
@@ -258,7 +269,7 @@ func (s *Service) CreateNote(
 // DeleteNote removes the note file for the given slug.
 func (s *Service) DeleteNote(slug string) error {
 	notePath := filepath.Join(s.NotesDir, slug+".md")
-	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(notePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("delete note %q: %w", slug, err)
 	}
 	return nil

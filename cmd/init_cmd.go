@@ -21,7 +21,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -66,7 +68,7 @@ var initCmd = &cobra.Command{
 		// 3. Write jot.yaml only when it does not already exist so we
 		//    never clobber a user's hand-edited config.
 		cfgFile := filepath.Join(cfgDir, "jot.yaml")
-		if _, err := os.Stat(cfgFile); os.IsNotExist(err) {
+		if _, err := os.Stat(cfgFile); errors.Is(err, fs.ErrNotExist) {
 			if err := os.WriteFile(cfgFile, []byte(defaultConfig), 0o600); err != nil {
 				return fmt.Errorf("write config file %q: %w", cfgFile, err)
 			}
@@ -85,13 +87,13 @@ var initCmd = &cobra.Command{
 
 		// Write a .gitkeep so the initial commit has content.
 		keepFile := filepath.Join(notesDir, ".gitkeep")
-		if _, statErr := os.Stat(keepFile); os.IsNotExist(statErr) {
+		if _, statErr := os.Stat(keepFile); errors.Is(statErr, fs.ErrNotExist) {
 			_ = os.WriteFile(keepFile, []byte(""), 0o600)
 		}
 
 		// Create scratch.md — a persistent scratch pad always one command away.
 		scratchPath := filepath.Join(notesDir, "scratch.md")
-		if _, statErr := os.Stat(scratchPath); os.IsNotExist(statErr) {
+		if _, statErr := os.Stat(scratchPath); errors.Is(statErr, fs.ErrNotExist) {
 			content := jot.ScaffoldFrontmatter("Scratch", time.Now().Format("2006-01-02"))
 			if err := os.WriteFile(scratchPath, []byte(content), 0o600); err != nil {
 				return fmt.Errorf("write scratch note: %w", err)

@@ -40,7 +40,6 @@ type LogEntry struct {
 	Message string
 	Date    time.Time // commit author date
 	Author  string
-	When    time.Time // alias for Date; kept for backward compatibility
 }
 
 // Repo wraps a go-git Repository bound to the notes directory.
@@ -186,13 +185,11 @@ func (r *Repo) Log(
 		if err != nil {
 			break
 		}
-		when := c.Author.When
 		entries = append(entries, LogEntry{
 			Hash:    c.Hash.String()[:7],
 			Message: strings.TrimSpace(c.Message),
-			Date:    when,
+			Date:    c.Author.When,
 			Author:  c.Author.Name,
-			When:    when,
 		})
 	}
 	return entries, nil
@@ -292,15 +289,14 @@ func formatCommitPatch(c *object.Commit, path string) (string, error) {
 	if path == "" {
 		return raw, nil
 	}
-	// Filter to lines related to path.
+	// Collect only the file section whose header contains path.
 	var sb strings.Builder
+	inSection := false
 	for _, line := range strings.Split(raw, "\n") {
-		if strings.Contains(line, path) ||
-			strings.HasPrefix(line, "@@") ||
-			strings.HasPrefix(line, "---") ||
-			strings.HasPrefix(line, "+++") ||
-			strings.HasPrefix(line, "+") ||
-			strings.HasPrefix(line, "-") {
+		if strings.HasPrefix(line, "diff ") {
+			inSection = strings.Contains(line, path)
+		}
+		if inSection {
 			sb.WriteString(line + "\n")
 		}
 	}

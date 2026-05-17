@@ -21,7 +21,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,7 +57,7 @@ var noteNewCmd = &cobra.Command{
 		// No title — open scratch.md.
 		if rawTitle == "" {
 			scratchPath := filepath.Join(notesDir, "scratch.md")
-			if _, err := os.Stat(scratchPath); os.IsNotExist(err) {
+			if _, err := os.Stat(scratchPath); errors.Is(err, fs.ErrNotExist) {
 				content := jot.ScaffoldFrontmatter("Scratch", time.Now().Format("2006-01-02"))
 				if err := os.WriteFile(scratchPath, []byte(content), 0o600); err != nil {
 					return fmt.Errorf("write scratch note: %w", err)

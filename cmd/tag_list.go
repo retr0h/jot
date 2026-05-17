@@ -22,12 +22,11 @@ package cmd
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 // tagListCmd implements `jot tag list`.
@@ -39,7 +38,7 @@ var tagListCmd = &cobra.Command{
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 
-		tags, err := jot.AllTags(NotesDir())
+		tags, err := svc.AllTags()
 		if err != nil {
 			return fmt.Errorf("list tags: %w", err)
 		}
@@ -48,7 +47,7 @@ var tagListCmd = &cobra.Command{
 			return nil
 		}
 
-		sort.Strings(tags)
+		slices.Sort(tags)
 
 		cli.Printf(out, "%s\n", cli.Mute(out, "TAG"))
 

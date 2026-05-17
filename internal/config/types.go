@@ -21,10 +21,10 @@
 // Package config holds the runtime configuration struct for jot.
 package config
 
-// Config holds the runtime configuration for jot, populated by viper from
+// AppConfig holds the runtime configuration for jot, populated by viper from
 // flags, environment variables, and the jot.yaml config file.
-type Config struct {
-	Config   string   `mapstructure:"config"`
+type AppConfig struct {
+	Dir      string   `mapstructure:"config"`
 	NotesDir string   `mapstructure:"notes_dir"`
 	SSHKeys  []string `mapstructure:"ssh_keys"`
 	Debug    bool     `mapstructure:"debug"`

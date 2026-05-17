@@ -46,14 +46,14 @@ var taskListCmd = &cobra.Command{
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 
-		tasks, err := jot.AllTasks(NotesDir(), taskListStatusFlag, taskListTagFlag)
+		tasks, err := svc.AllTasks(taskListStatusFlag, taskListTagFlag)
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
 		}
 
 		if taskListStatusFlag == "open" {
 			todayStr := time.Now().Format("2006-01-02")
-			done, _ := jot.AllTasks(NotesDir(), "done", taskListTagFlag)
+			done, _ := svc.AllTasks("done", taskListTagFlag)
 			for _, t := range done {
 				if t.DoneDate == todayStr {
 					tasks = append(tasks, t)
@@ -90,7 +90,7 @@ var taskListCmd = &cobra.Command{
 				tags = "#" + strings.Join(t.Tags, " #")
 			}
 			rows = append(rows, row{
-				done: t.Done != "",
+				done: t.Done,
 				desc: t.Description,
 				due:  due,
 				note: t.NoteSlug,

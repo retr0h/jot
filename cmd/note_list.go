@@ -27,7 +27,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 var noteListTagFlag string
@@ -41,7 +40,7 @@ var noteListCmd = &cobra.Command{
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 
-		notes, err := jot.ListNotes(NotesDir(), noteListTagFlag)
+		notes, err := svc.ListNotes(noteListTagFlag)
 		if err != nil {
 			return fmt.Errorf("list notes: %w", err)
 		}

@@ -47,15 +47,14 @@ var mcpCmd = &cobra.Command{
 over MCP so an LLM agent can read and mutate your notes directly.
 
 The MCP server is spawned by an agent (Claude Code, Cursor, …) per
-session. When the agent disconnects the process exits and the SQLite
-store is closed cleanly.
+session and exits when the agent disconnects.
 
 Configure your agent (example for Claude Code) to spawn:
 
   jot mcp start
 
 …and it gets tools for list_notes, create_note, search_notes,
-list_tasks, complete_task, list_labels, and more.`,
+list_tasks, task_done, list_tags, and more.`,
 }
 
 func init() {
