@@ -18,13 +18,9 @@ everything in git — every save is a commit. Sensitive notes encrypt at
 rest via [kvlt][] (age + SSH keys). An MCP server exposes the full
 surface to LLM agents. No database: files are the source of truth.
 
-## 📋 Prerequisites
-
-- [neovim](https://neovim.io) — jot is opinionated; all editing happens in nvim
-- [obsidian.nvim](https://github.com/epwalsh/obsidian.nvim) — `[[wiki-link]]` navigation
-- [markview.nvim](https://github.com/OXY2DEV/markview.nvim) — markdown rendering
-
 ## 📦 Install
+
+> Requires [neovim](https://neovim.io) with plugins — see [nvim Setup](#%EF%B8%8F-nvim-setup) below.
 
 ```bash
 curl -fsSL https://github.com/retr0h/jot/raw/main/install.sh | bash
