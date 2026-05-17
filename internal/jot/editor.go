@@ -21,41 +21,22 @@
 package jot
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 )
 
-// ErrEditorUnset is returned when neither $VISUAL nor $EDITOR is set.
-var ErrEditorUnset = errors.New("$EDITOR is not set — jot requires a configured editor")
-
-// EditorName resolves the editor from $VISUAL or $EDITOR.
-func EditorName() (string, error) {
-	if e := os.Getenv("VISUAL"); e != "" {
-		return e, nil
-	}
-	if e := os.Getenv("EDITOR"); e != "" {
-		return e, nil
-	}
-	return "", ErrEditorUnset
-}
-
-// Edit opens path in the resolved editor. JOT_NOTES_DIR is set in the
-// child environment so editor plugins can locate the notes directory.
+// Edit opens path in nvim. JOT_NOTES_DIR is set in the child environment
+// so editor plugins (obsidian.nvim) can locate the notes directory.
 func Edit(path string) error {
-	editor, err := EditorName()
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command(editor, path)
+	cmd := exec.Command("nvim", path)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = append(os.Environ(), "JOT_NOTES_DIR="+filepath.Dir(path))
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("editor %s: %w", editor, err)
+		return fmt.Errorf("nvim: %w", err)
 	}
 	return nil
 }
