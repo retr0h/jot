@@ -92,11 +92,6 @@ func NotesDir() string {
 	return filepath.Join(ConfigDir(), "notes")
 }
 
-// EditorPref returns the user's preferred editor from configuration.
-func EditorPref() string {
-	return viper.GetString("editor")
-}
-
 func init() {
 	cobra.OnInitialize(initConfig, initLogger)
 
@@ -127,7 +122,6 @@ func initConfig() {
 	_ = viper.ReadInConfig()
 
 	// Defaults — all overridable via config file, env vars, or flags.
-	viper.SetDefault("editor", "")
 	viper.SetDefault("notes_dir", "")
 }
 

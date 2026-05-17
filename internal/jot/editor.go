@@ -21,35 +21,34 @@
 package jot
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 )
 
-// EditorName resolves the editor to use in priority order:
-//
-//  1. configEditor (from jot's config file / --editor flag)
-//  2. $VISUAL environment variable
-//  3. $EDITOR environment variable
-//  4. nvim (hard default)
-func EditorName(configEditor string) string {
-	if configEditor != "" {
-		return configEditor
-	}
+// ErrEditorUnset is returned when neither $VISUAL nor $EDITOR is set.
+var ErrEditorUnset = errors.New("$EDITOR is not set — jot requires a configured editor")
+
+// EditorName resolves the editor from $VISUAL or $EDITOR.
+func EditorName() (string, error) {
 	if e := os.Getenv("VISUAL"); e != "" {
-		return e
+		return e, nil
 	}
 	if e := os.Getenv("EDITOR"); e != "" {
-		return e
+		return e, nil
 	}
-	return "nvim"
+	return "", ErrEditorUnset
 }
 
 // Edit opens path in the resolved editor. JOT_NOTES_DIR is set in the
 // child environment so editor plugins can locate the notes directory.
-func Edit(path string, configEditor string) error {
-	editor := EditorName(configEditor)
+func Edit(path string) error {
+	editor, err := EditorName()
+	if err != nil {
+		return err
+	}
 	cmd := exec.Command(editor, path)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

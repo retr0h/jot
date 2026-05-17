@@ -27,64 +27,51 @@ import (
 )
 
 func TestEditorName(t *testing.T) {
-	// Not parallel at suite level: subtests manipulate env vars via t.Setenv,
-	// which are automatically restored but must not race with each other.
-
 	tests := []struct {
-		name         string
-		configEditor string
-		visual       string
-		editor       string
-		want         string
+		name    string
+		visual  string
+		editor  string
+		want    string
+		wantErr bool
 	}{
 		{
-			name:         "config value takes highest priority",
-			configEditor: "vim",
-			visual:       "code",
-			editor:       "nano",
-			want:         "vim",
+			name:   "VISUAL takes priority over EDITOR",
+			visual: "code",
+			editor: "nano",
+			want:   "code",
 		},
 		{
-			name:         "VISUAL used when config is empty",
-			configEditor: "",
-			visual:       "code",
-			editor:       "nano",
-			want:         "code",
+			name:   "EDITOR used when VISUAL is empty",
+			visual: "",
+			editor: "nano",
+			want:   "nano",
 		},
 		{
-			name:         "EDITOR used when config and VISUAL are empty",
-			configEditor: "",
-			visual:       "",
-			editor:       "nano",
-			want:         "nano",
-		},
-		{
-			name:         "defaults to nvim when all sources are empty",
-			configEditor: "",
-			visual:       "",
-			editor:       "",
-			want:         "nvim",
-		},
-		{
-			name:         "config overrides even when env vars are set",
-			configEditor: "emacs",
-			visual:       "",
-			editor:       "",
-			want:         "emacs",
+			name:    "error when neither is set",
+			visual:  "",
+			editor:  "",
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// t.Setenv restores the original value after the test.
 			t.Setenv("VISUAL", tt.visual)
 			t.Setenv("EDITOR", tt.editor)
 
-			got := jot.EditorName(tt.configEditor)
+			got, err := jot.EditorName()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if got != tt.want {
 				t.Errorf(
-					"EditorName(%q) with VISUAL=%q EDITOR=%q = %q, want %q",
-					tt.configEditor,
+					"EditorName() with VISUAL=%q EDITOR=%q = %q, want %q",
 					tt.visual,
 					tt.editor,
 					got,
