@@ -108,22 +108,27 @@ func (fileNotesProvider) AllTags(notesDir string) ([]string, error) {
 // ─── Config and Server ───────────────────────────────────────────────────────
 
 // Config bundles the runtime inputs for a jot MCP server. NotesDir is
-// required; Logger defaults to text-on-stderr when nil.
+// required; Logger defaults to text-on-stderr when nil. ConfigDir and
+// SSHKeys are needed for transparent decryption of secure notes.
 type Config struct {
-	NotesDir string
-	Logger   *slog.Logger
+	NotesDir  string
+	ConfigDir string
+	SSHKeys   []string
+	Logger    *slog.Logger
 }
 
 // Server is the jot MCP server. Holds the notes directory used by every tool
 // handler, plus the underlying mcpsdk.Server. Constructed via New; the wire
 // is driven by Run.
 type Server struct {
-	mcp      *mcpsdk.Server
-	notesDir string
-	notes    noteLister
-	tasks    taskLister
-	tags     tagLister
-	logger   *slog.Logger
+	mcp       *mcpsdk.Server
+	notesDir  string
+	configDir string
+	sshKeys   []string
+	notes     noteLister
+	tasks     taskLister
+	tags      tagLister
+	logger    *slog.Logger
 }
 
 // New creates an MCP server, registers all 8 tools, and returns a
@@ -148,12 +153,14 @@ func New(cfg Config) (*Server, error) {
 
 	provider := fileNotesProvider{}
 	s := &Server{
-		mcp:      mcpSrv,
-		notesDir: cfg.NotesDir,
-		notes:    provider,
-		tasks:    provider,
-		tags:     provider,
-		logger:   cfg.Logger.With(slog.String("subsystem", "mcp")),
+		mcp:       mcpSrv,
+		notesDir:  cfg.NotesDir,
+		configDir: cfg.ConfigDir,
+		sshKeys:   cfg.SSHKeys,
+		notes:     provider,
+		tasks:     provider,
+		tags:      provider,
+		logger:    cfg.Logger.With(slog.String("subsystem", "mcp")),
 	}
 	s.registerTools()
 	return s, nil

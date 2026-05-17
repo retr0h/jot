@@ -35,12 +35,14 @@ import (
 	"golang.org/x/term"
 
 	"github.com/retr0h/jot/internal/cli"
+	"github.com/retr0h/jot/internal/config"
 )
 
 // logger is the package-level slog logger, populated from initLogger
 // after cobra parses persistent flags. CLI subcommands log through it
 // directly.
 var (
+	appConfig  config.Config
 	logger     = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	jsonOutput bool
 )
@@ -76,25 +78,19 @@ func Execute() {
 	}
 }
 
-// ConfigDir returns the resolved jot config directory (from --config or
-// the JOT_CONFIG env var, defaulting to ~/.config/jot).
+// ConfigDir returns the resolved jot config directory.
 func ConfigDir() string {
-	return viper.GetString("config")
+	return appConfig.Config
 }
 
-// NotesDir returns the directory where jot stores note files. Overridden
-// by the notes_dir config key or JOT_NOTES_DIR env var; defaults to
-// <ConfigDir>/notes.
+// NotesDir returns the directory where jot stores note files.
 func NotesDir() string {
-	if d := viper.GetString("notes_dir"); d != "" {
-		return d
-	}
-	return filepath.Join(ConfigDir(), "notes")
+	return appConfig.NotesDir
 }
 
 // SSHKeys returns the configured SSH key paths for kvlt identity resolution.
 func SSHKeys() []string {
-	return viper.GetStringSlice("ssh_keys")
+	return appConfig.SSHKeys
 }
 
 func init() {
@@ -127,11 +123,17 @@ func initConfig() {
 	// Load jot.yaml from the config directory when it exists.
 	viper.SetConfigName("jot")
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath(ConfigDir())
+	viper.AddConfigPath(viper.GetString("config"))
 	_ = viper.ReadInConfig()
 
 	// Defaults — all overridable via config file, env vars, or flags.
 	viper.SetDefault("notes_dir", "")
+
+	_ = viper.Unmarshal(&appConfig)
+
+	if appConfig.NotesDir == "" {
+		appConfig.NotesDir = filepath.Join(appConfig.Config, "notes")
+	}
 }
 
 // initLogger swaps the package-level logger to a tint handler with

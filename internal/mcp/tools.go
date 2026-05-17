@@ -32,6 +32,21 @@ import (
 	"github.com/retr0h/jot/internal/jot"
 )
 
+// secureNoteBody retrieves the decrypted body of a secure note from kvlt.
+// Returns an error string if decryption fails (e.g. passphrase-protected key
+// with no TTY available). MCP requires passphrase-free SSH keys for secure
+// note access.
+func (s *Server) secureNoteBody(
+	ctx context.Context,
+	slug string,
+) (string, error) {
+	store, err := jot.NewSecureStore(s.configDir, s.sshKeys, nil)
+	if err != nil {
+		return "", fmt.Errorf("open secure store: %w", err)
+	}
+	return store.ReadNote(ctx, slug)
+}
+
 // registerTools wires all 8 jot MCP tools into the SDK server.
 func (s *Server) registerTools() {
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -86,8 +101,9 @@ type getNoteArgs struct {
 }
 
 type createNoteArgs struct {
-	Title   string `json:"title"   jsonschema:"Note title (used to derive the slug)."`
-	Content string `json:"content" jsonschema:"Markdown content of the note (optional; scaffold used when empty)."`
+	Title   string `json:"title"            jsonschema:"Note title (used to derive the slug)."`
+	Content string `json:"content"          jsonschema:"Markdown content of the note (optional; scaffold used when empty)."`
+	Secure  bool   `json:"secure,omitempty" jsonschema:"When true, encrypt the note body via kvlt (requires passphrase-free SSH keys)."`
 }
 
 type deleteNoteArgs struct {
@@ -124,7 +140,7 @@ func (s *Server) handleListNotes(
 }
 
 func (s *Server) handleGetNote(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcpsdk.CallToolRequest,
 	args getNoteArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
@@ -135,18 +151,31 @@ func (s *Server) handleGetNote(
 	if err != nil {
 		return textResult(fmt.Sprintf("error: get note %q: %v", args.Slug, err)), nil, nil
 	}
-	// Read raw file content so the agent sees the full note including front-matter.
+
+	if note.Secure {
+		body, err := s.secureNoteBody(ctx, args.Slug)
+		if err != nil {
+			return textResult(
+				fmt.Sprintf(
+					"error: decrypt note %q: %v (MCP requires passphrase-free SSH keys)",
+					args.Slug,
+					err,
+				),
+			), nil, nil
+		}
+		return textResult(body), nil, nil
+	}
+
 	notePath := filepath.Join(s.notesDir, args.Slug+".md")
 	content, err := os.ReadFile(notePath)
 	if err != nil {
 		return textResult(fmt.Sprintf("error: read note file %q: %v", args.Slug, err)), nil, nil
 	}
-	_ = note
 	return textResult(string(content)), nil, nil
 }
 
 func (s *Server) handleCreateNote(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcpsdk.CallToolRequest,
 	args createNoteArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
@@ -161,16 +190,37 @@ func (s *Server) handleCreateNote(
 	}
 
 	notePath := filepath.Join(s.notesDir, slug+".md")
-	content := args.Content
-	if content == "" {
-		content = jot.ScaffoldFrontmatter(args.Title, time.Now().Format("2006-01-02"))
+	body := args.Content
+
+	if args.Secure {
+		store, err := jot.NewSecureStore(s.configDir, s.sshKeys, nil)
+		if err != nil {
+			return textResult(fmt.Sprintf("error: open secure store: %v", err)), nil, nil
+		}
+		if err := store.WriteNote(ctx, slug, body); err != nil {
+			return textResult(fmt.Sprintf("error: encrypt note: %v", err)), nil, nil
+		}
+		scaffold := fmt.Sprintf(
+			"---\ntitle: %q\ntags: []\ncreated: %s\nsecure: true\n---\n",
+			args.Title,
+			time.Now().Format("2006-01-02"),
+		)
+		if err := os.WriteFile(notePath, []byte(scaffold), 0o600); err != nil {
+			return textResult(fmt.Sprintf("error: write note file: %v", err)), nil, nil
+		}
+	} else {
+		content := body
+		if content == "" {
+			content = jot.ScaffoldFrontmatter(args.Title, time.Now().Format("2006-01-02"))
+		}
+		if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
+			return textResult(fmt.Sprintf("error: write note file: %v", err)), nil, nil
+		}
 	}
 
-	if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
-		return textResult(fmt.Sprintf("error: write note file: %v", err)), nil, nil
-	}
-
-	return textResult(fmt.Sprintf(`{"slug": %q, "path": %q}`, slug, notePath)), nil, nil
+	return textResult(
+		fmt.Sprintf(`{"slug": %q, "path": %q, "secure": %t}`, slug, notePath, args.Secure),
+	), nil, nil
 }
 
 func (s *Server) handleDeleteNote(

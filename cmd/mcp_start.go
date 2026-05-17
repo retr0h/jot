@@ -64,8 +64,10 @@ anything else there would corrupt the protocol.
 		defer cancel()
 
 		s, err := mcppkg.New(mcppkg.Config{
-			NotesDir: notesDir,
-			Logger:   logger,
+			NotesDir:  notesDir,
+			ConfigDir: ConfigDir(),
+			SSHKeys:   SSHKeys(),
+			Logger:    logger,
 		})
 		if err != nil {
 			return fmt.Errorf("mcp start: %w", err)
