@@ -20,16 +20,6 @@
 
 // Package mcp is the Model Context Protocol server for jot. Exposes every
 // note, task, and tag operation as an MCP tool an LLM agent can call.
-//
-// Architecturally: this package talks to the notes directory on disk through
-// narrow consumer-seam interfaces (noteLister, taskLister, tagLister). No
-// SQLite is involved. The agent spawns `jot mcp start` as a subprocess, which
-// pipes JSON-RPC over stdin/stdout. When the agent disconnects the process
-// exits cleanly.
-//
-// Each tool is a thin adapter: extract params from CallToolParams.Arguments,
-// call the appropriate interface method or file operation, return a TextContent
-// result with the JSON response.
 package mcp
 
 import (
@@ -47,95 +37,49 @@ import (
 // version is the MCP implementation version surfaced to agents on initialize.
 const version = "0.1.0"
 
-// ─── consumer-seam interfaces ─────────────────────────────────────────────────
+// ─── consumer-seam interface ─────────────────────────────────────────────────
 
-// noteLister reads notes from the filesystem.
-type noteLister interface {
-	ListNotes(notesDir string, tagFilter string) ([]*jot.Note, error)
-	SearchNotes(notesDir string, query string) ([]*jot.Note, error)
-	FindNote(notesDir string, slug string) (*jot.Note, error)
-}
-
-// taskLister reads tasks aggregated across note files.
-type taskLister interface {
-	AllTasks(notesDir string, status string, tagFilter string) ([]jot.Task, error)
-	TasksDue(notesDir string, from time.Time, to time.Time) ([]jot.Task, error)
-}
-
-// tagLister enumerates tags across the notes directory.
-type tagLister interface {
-	AllTags(notesDir string) ([]string, error)
-}
-
-// ─── fileNotesProvider ───────────────────────────────────────────────────────
-
-// fileNotesProvider satisfies noteLister, taskLister, and tagLister by
-// delegating directly to the jot package functions that scan the filesystem.
-type fileNotesProvider struct{}
-
-func (fileNotesProvider) ListNotes(notesDir string, tagFilter string) ([]*jot.Note, error) {
-	return jot.ListNotes(notesDir, tagFilter)
-}
-
-func (fileNotesProvider) SearchNotes(notesDir string, query string) ([]*jot.Note, error) {
-	return jot.SearchNotes(notesDir, query)
-}
-
-func (fileNotesProvider) FindNote(notesDir string, slug string) (*jot.Note, error) {
-	return jot.FindNote(notesDir, slug)
-}
-
-func (fileNotesProvider) AllTasks(
-	notesDir string,
-	status string,
-	tagFilter string,
-) ([]jot.Task, error) {
-	return jot.AllTasks(notesDir, status, tagFilter)
-}
-
-func (fileNotesProvider) TasksDue(
-	notesDir string,
-	from time.Time,
-	to time.Time,
-) ([]jot.Task, error) {
-	return jot.TasksDue(notesDir, from, to)
-}
-
-func (fileNotesProvider) AllTags(notesDir string) ([]string, error) {
-	return jot.AllTags(notesDir)
+// Store is the narrow consumer-seam interface this MCP server depends on.
+// Concrete *jot.Service satisfies it structurally — the compiler verifies
+// at the assignment site in New().
+type Store interface {
+	ListNotes(tagFilter string) ([]*jot.Note, error)
+	SearchNotes(query string) ([]*jot.Note, error)
+	FindNoteBySlug(slug string) (*jot.Note, error)
+	CatNote(slug string) (string, error)
+	CreateNote(title string, content string, secure bool) (string, string, error)
+	DeleteNote(slug string) error
+	EncryptNote(slug string) error
+	DecryptNote(slug string) error
+	RenameNote(oldSlug string, newTitle string) (string, error)
+	AllTasks(status string, tagFilter string) ([]jot.Task, error)
+	TasksDue(from time.Time, to time.Time) ([]jot.Task, error)
+	MarkTaskDone(slug string, desc string) error
+	AllTags() ([]string, error)
 }
 
 // ─── Config and Server ───────────────────────────────────────────────────────
 
-// Config bundles the runtime inputs for a jot MCP server. NotesDir is
-// required; Logger defaults to text-on-stderr when nil. ConfigDir and
-// SSHKeys are needed for transparent decryption of secure notes.
+// Config bundles the runtime inputs for a jot MCP server.
 type Config struct {
-	NotesDir  string
-	ConfigDir string
-	SSHKeys   []string
-	Logger    *slog.Logger
+	Store  Store
+	Logger *slog.Logger
 }
 
-// Server is the jot MCP server. Holds the notes directory used by every tool
-// handler, plus the underlying mcpsdk.Server. Constructed via New; the wire
-// is driven by Run.
+// Server is the jot MCP server. Holds a Store (the narrow consumer
+// surface) used by every tool handler, plus the underlying mcpsdk.Server.
+// Constructed via New; the wire is driven by Run.
 type Server struct {
-	mcp       *mcpsdk.Server
-	notesDir  string
-	configDir string
-	sshKeys   []string
-	notes     noteLister
-	tasks     taskLister
-	tags      tagLister
-	logger    *slog.Logger
+	mcp    *mcpsdk.Server
+	store  Store
+	logger *slog.Logger
 }
 
-// New creates an MCP server, registers all 8 tools, and returns a
-// ready-to-Run Server. No database connection is opened.
+// New creates an MCP server, registers all tools, and returns a
+// ready-to-Run Server.
 func New(cfg Config) (*Server, error) {
-	if cfg.NotesDir == "" {
-		return nil, fmt.Errorf("mcp: NotesDir required")
+	if cfg.Store == nil {
+		return nil, fmt.Errorf("mcp: Store required")
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -151,24 +95,17 @@ func New(cfg Config) (*Server, error) {
 		},
 	)
 
-	provider := fileNotesProvider{}
 	s := &Server{
-		mcp:       mcpSrv,
-		notesDir:  cfg.NotesDir,
-		configDir: cfg.ConfigDir,
-		sshKeys:   cfg.SSHKeys,
-		notes:     provider,
-		tasks:     provider,
-		tags:      provider,
-		logger:    cfg.Logger.With(slog.String("subsystem", "mcp")),
+		mcp:    mcpSrv,
+		store:  cfg.Store,
+		logger: cfg.Logger.With(slog.String("subsystem", "mcp")),
 	}
 	s.registerTools()
 	return s, nil
 }
 
 // Run wires the MCP server to stdin/stdout and blocks until the transport
-// closes (the spawning agent disconnects) or ctx cancels. Returns nil on
-// clean shutdown.
+// closes or ctx cancels.
 func (s *Server) Run(ctx context.Context) error {
 	s.logger.Info(
 		"running",
@@ -177,8 +114,7 @@ func (s *Server) Run(ctx context.Context) error {
 	return s.mcp.Run(ctx, &mcpsdk.StdioTransport{})
 }
 
-// Close is a no-op; retained for interface compatibility with callers that
-// defer s.Close(). Returns nil.
+// Close is a no-op; retained for interface compatibility.
 func (s *Server) Close() error {
 	return nil
 }

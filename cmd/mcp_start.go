@@ -28,22 +28,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/retr0h/jot/internal/jot"
 	mcppkg "github.com/retr0h/jot/internal/mcp"
 )
 
 var mcpStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Run the jot MCP server over stdio",
-	Long: `Speaks Model Context Protocol on stdin/stdout — the transport
-agents (Claude Code, Cursor, …) expect when they spawn a server as
-a subprocess. Blocks until the agent disconnects (the typical MCP
-lifecycle); exits cleanly on disconnect.
-
-Logs go to stderr only — stdout is the JSON-RPC wire and writing
-anything else there would corrupt the protocol.
-
-  jot mcp start                              # default config dir
-  JOT_NOTES_DIR=/tmp/notes jot mcp start    # custom notes directory`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		notesDir := NotesDir()
 		if notesDir == "" {
@@ -63,11 +54,16 @@ anything else there would corrupt the protocol.
 		)
 		defer cancel()
 
-		s, err := mcppkg.New(mcppkg.Config{
+		svc := &jot.Service{
 			NotesDir:  notesDir,
 			ConfigDir: ConfigDir(),
 			SSHKeys:   SSHKeys(),
-			Logger:    logger,
+			Prompt:    nil,
+		}
+
+		s, err := mcppkg.New(mcppkg.Config{
+			Store:  svc,
+			Logger: logger,
 		})
 		if err != nil {
 			return fmt.Errorf("mcp start: %w", err)

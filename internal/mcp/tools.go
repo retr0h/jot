@@ -23,13 +23,9 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/retr0h/jot/internal/jot"
 )
 
 // registerTools wires all jot MCP tools into the SDK server.
@@ -119,11 +115,6 @@ type searchNotesArgs struct {
 	Query string `json:"query" jsonschema:"Case-insensitive substring to search for."`
 }
 
-type listTasksArgs struct {
-	Status string `json:"status,omitempty" jsonschema:"Task status filter: open, done, or all (default all)."`
-	Tag    string `json:"tag,omitempty"    jsonschema:"Filter to tasks carrying this tag (optional)."`
-}
-
 type renameNoteArgs struct {
 	Slug  string `json:"slug"  jsonschema:"Current note slug to rename."`
 	Title string `json:"title" jsonschema:"New title for the note (slug is derived from this)."`
@@ -135,6 +126,11 @@ type encryptNoteArgs struct {
 
 type decryptNoteArgs struct {
 	Slug string `json:"slug" jsonschema:"Note slug to decrypt."`
+}
+
+type listTasksArgs struct {
+	Status string `json:"status,omitempty" jsonschema:"Task status filter: open, done, or all (default all)."`
+	Tag    string `json:"tag,omitempty"    jsonschema:"Filter to tasks carrying this tag (optional)."`
 }
 
 type taskDoneArgs struct {
@@ -155,7 +151,7 @@ func (s *Server) handleListNotes(
 	_ *mcpsdk.CallToolRequest,
 	args listNotesArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
-	notes, err := s.notes.ListNotes(s.notesDir, args.Tag)
+	notes, err := s.store.ListNotes(args.Tag)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
@@ -171,7 +167,7 @@ func (s *Server) handleGetNote(
 		return textResult("error: slug is required"), nil, nil
 	}
 
-	body, err := jot.CatNote(s.notesDir, s.configDir, s.sshKeys, args.Slug, nil)
+	body, err := s.store.CatNote(args.Slug)
 	if err != nil {
 		return textResult(fmt.Sprintf("error: get note %q: %v", args.Slug, err)), nil, nil
 	}
@@ -187,39 +183,9 @@ func (s *Server) handleCreateNote(
 		return textResult("error: title is required"), nil, nil
 	}
 
-	slug := jot.NewSlug(args.Title, time.Now())
-
-	if err := os.MkdirAll(s.notesDir, 0o700); err != nil {
-		return textResult(fmt.Sprintf("error: create notes dir: %v", err)), nil, nil
-	}
-
-	notePath := filepath.Join(s.notesDir, slug+".md")
-	body := args.Content
-
-	if args.Secure {
-		store, err := jot.NewSecureStore(s.configDir, s.sshKeys, nil)
-		if err != nil {
-			return textResult(fmt.Sprintf("error: open secure store: %v", err)), nil, nil
-		}
-		if err := store.WriteNote(context.Background(), slug, body); err != nil {
-			return textResult(fmt.Sprintf("error: encrypt note: %v", err)), nil, nil
-		}
-		scaffold := fmt.Sprintf(
-			"---\ntitle: %q\ntags: []\ncreated: %s\nsecure: true\n---\n",
-			args.Title,
-			time.Now().Format("2006-01-02"),
-		)
-		if err := os.WriteFile(notePath, []byte(scaffold), 0o600); err != nil {
-			return textResult(fmt.Sprintf("error: write note file: %v", err)), nil, nil
-		}
-	} else {
-		content := body
-		if content == "" {
-			content = jot.ScaffoldFrontmatter(args.Title, time.Now().Format("2006-01-02"))
-		}
-		if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
-			return textResult(fmt.Sprintf("error: write note file: %v", err)), nil, nil
-		}
+	slug, notePath, err := s.store.CreateNote(args.Title, args.Content, args.Secure)
+	if err != nil {
+		return textResult(fmt.Sprintf("error: create note: %v", err)), nil, nil
 	}
 
 	return textResult(
@@ -236,8 +202,7 @@ func (s *Server) handleDeleteNote(
 		return textResult("error: slug is required"), nil, nil
 	}
 
-	notePath := filepath.Join(s.notesDir, args.Slug+".md")
-	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
+	if err := s.store.DeleteNote(args.Slug); err != nil {
 		return textResult(fmt.Sprintf("error: delete note %q: %v", args.Slug, err)), nil, nil
 	}
 
@@ -252,11 +217,63 @@ func (s *Server) handleSearchNotes(
 	if args.Query == "" {
 		return textResult("error: query is required"), nil, nil
 	}
-	results, err := s.notes.SearchNotes(s.notesDir, args.Query)
+	results, err := s.store.SearchNotes(args.Query)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
 	return textResult(jsonOrErr(results)), nil, nil
+}
+
+func (s *Server) handleRenameNote(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args renameNoteArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+	if args.Title == "" {
+		return textResult("error: title is required"), nil, nil
+	}
+
+	newSlug, err := s.store.RenameNote(args.Slug, args.Title)
+	if err != nil {
+		return textResult(fmt.Sprintf("error: rename note: %v", err)), nil, nil
+	}
+
+	return textResult(fmt.Sprintf(`{"old_slug": %q, "new_slug": %q}`, args.Slug, newSlug)), nil, nil
+}
+
+func (s *Server) handleEncryptNote(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args encryptNoteArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+
+	if err := s.store.EncryptNote(args.Slug); err != nil {
+		return textResult(fmt.Sprintf("error: encrypt note %q: %v", args.Slug, err)), nil, nil
+	}
+
+	return textResult(fmt.Sprintf(`{"encrypted": %q}`, args.Slug)), nil, nil
+}
+
+func (s *Server) handleDecryptNote(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args decryptNoteArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+
+	if err := s.store.DecryptNote(args.Slug); err != nil {
+		return textResult(fmt.Sprintf("error: decrypt note %q: %v", args.Slug, err)), nil, nil
+	}
+
+	return textResult(fmt.Sprintf(`{"decrypted": %q}`, args.Slug)), nil, nil
 }
 
 func (s *Server) handleListTasks(
@@ -268,11 +285,30 @@ func (s *Server) handleListTasks(
 	if status == "" {
 		status = "all"
 	}
-	tasks, err := s.tasks.AllTasks(s.notesDir, status, args.Tag)
+	tasks, err := s.store.AllTasks(status, args.Tag)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
 	return textResult(jsonOrErr(tasks)), nil, nil
+}
+
+func (s *Server) handleTaskDone(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args taskDoneArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+	if args.Desc == "" {
+		return textResult("error: desc is required"), nil, nil
+	}
+
+	if err := s.store.MarkTaskDone(args.Slug, args.Desc); err != nil {
+		return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
+	}
+
+	return textResult(fmt.Sprintf(`{"slug": %q, "task": %q, "done": true}`, args.Slug, args.Desc)), nil, nil
 }
 
 func (s *Server) handleTasksDue(
@@ -298,7 +334,7 @@ func (s *Server) handleTasksDue(
 		return textResult("error: period must be today, this_week, or this_month"), nil, nil
 	}
 
-	tasks, err := s.tasks.TasksDue(s.notesDir, from, to)
+	tasks, err := s.store.TasksDue(from, to)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
@@ -310,83 +346,11 @@ func (s *Server) handleListTags(
 	_ *mcpsdk.CallToolRequest,
 	_ listTagsArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
-	tags, err := s.tags.AllTags(s.notesDir)
+	tags, err := s.store.AllTags()
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
 	return textResult(jsonOrErr(tags)), nil, nil
-}
-
-func (s *Server) handleRenameNote(
-	_ context.Context,
-	_ *mcpsdk.CallToolRequest,
-	args renameNoteArgs,
-) (*mcpsdk.CallToolResult, any, error) {
-	if args.Slug == "" {
-		return textResult("error: slug is required"), nil, nil
-	}
-	if args.Title == "" {
-		return textResult("error: title is required"), nil, nil
-	}
-
-	newSlug, err := jot.RenameNote(s.notesDir, args.Slug, args.Title)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: rename note: %v", err)), nil, nil
-	}
-
-	return textResult(fmt.Sprintf(`{"old_slug": %q, "new_slug": %q}`, args.Slug, newSlug)), nil, nil
-}
-
-func (s *Server) handleEncryptNote(
-	_ context.Context,
-	_ *mcpsdk.CallToolRequest,
-	args encryptNoteArgs,
-) (*mcpsdk.CallToolResult, any, error) {
-	if args.Slug == "" {
-		return textResult("error: slug is required"), nil, nil
-	}
-
-	if err := jot.EncryptNote(s.notesDir, s.configDir, s.sshKeys, args.Slug, nil); err != nil {
-		return textResult(fmt.Sprintf("error: encrypt note %q: %v", args.Slug, err)), nil, nil
-	}
-
-	return textResult(fmt.Sprintf(`{"encrypted": %q}`, args.Slug)), nil, nil
-}
-
-func (s *Server) handleDecryptNote(
-	_ context.Context,
-	_ *mcpsdk.CallToolRequest,
-	args decryptNoteArgs,
-) (*mcpsdk.CallToolResult, any, error) {
-	if args.Slug == "" {
-		return textResult("error: slug is required"), nil, nil
-	}
-
-	if err := jot.DecryptNote(s.notesDir, s.configDir, s.sshKeys, args.Slug, nil); err != nil {
-		return textResult(fmt.Sprintf("error: decrypt note %q: %v", args.Slug, err)), nil, nil
-	}
-
-	return textResult(fmt.Sprintf(`{"decrypted": %q}`, args.Slug)), nil, nil
-}
-
-func (s *Server) handleTaskDone(
-	_ context.Context,
-	_ *mcpsdk.CallToolRequest,
-	args taskDoneArgs,
-) (*mcpsdk.CallToolResult, any, error) {
-	if args.Slug == "" {
-		return textResult("error: slug is required"), nil, nil
-	}
-	if args.Desc == "" {
-		return textResult("error: desc is required"), nil, nil
-	}
-
-	notePath := filepath.Join(s.notesDir, args.Slug+".md")
-	if err := jot.MarkTaskDone(notePath, args.Desc); err != nil {
-		return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
-	}
-
-	return textResult(fmt.Sprintf(`{"slug": %q, "task": %q, "done": true}`, args.Slug, args.Desc)), nil, nil
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
