@@ -26,26 +26,27 @@ jot (binary)
 │   └── version/    build-time identity
 ```
 
-Command tree:
+Command tree (long form / short alias):
 
 ```
 jot
 ├── init
-├── note
-│   ├── new --title <title> [--secure]
-│   ├── edit --slug <slug>
-│   ├── mv --slug <slug> --title <new-title>
-│   ├── list [--tag X]
-│   └── search --query <query>
-├── task
-│   ├── list [--status X] [--tag X]
-│   ├── done --slug <slug> --desc <desc>
-│   └── due [--period today|week|month]
-├── tag list
-├── git
-│   ├── log [--slug X]
-│   ├── diff [--slug X]
-│   └── show --commit <hash> [--note X]
+├── note (n)
+│   ├── new (n)    --title/-t <title> [--secure/-x]
+│   ├── edit (e)   --slug/-s <slug>
+│   ├── mv (m)     --slug/-s <slug> --title/-t <new-title>
+│   ├── list (l)   [--tag/-T X]
+│   └── search (s) --query/-q <query>
+├── task (t)
+│   ├── list (l)   [--status/-S X] [--tag/-T X]
+│   ├── done (d)   --slug/-s <slug> --desc/-D <desc>
+│   └── due (du)   [--period/-p today|week|month]
+├── tag (tg)
+│   └── list (l)
+├── git (g)
+│   ├── log (l)    [--slug/-s X]
+│   ├── diff (d)   [--slug/-s X]
+│   └── show (s)   --commit/-c <hash> [--note/-n X]
 └── mcp start
 ```
 

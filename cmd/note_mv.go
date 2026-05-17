@@ -44,14 +44,27 @@ var (
 // Renames the note file, rewrites the frontmatter title and first heading,
 // and replaces [[old-slug]] wikilinks in all other notes. Auto-commits after.
 var noteMvCmd = &cobra.Command{
-	Use:   "mv",
-	Short: "Rename a note and rewrite wikilinks",
-	Args:  cobra.NoArgs,
+	Use:     "mv",
+	Aliases: []string{"m"},
+	Short:   "Rename a note and rewrite wikilinks",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
-		oldSlug := noteMvSlugFlag
-		newTitle := noteMvTitleFlag
 		notesDir := NotesDir()
+
+		oldSlug := noteMvSlugFlag
+		if oldSlug == "" {
+			picked, err := pickNote(notesDir)
+			if err != nil {
+				return err
+			}
+			oldSlug = picked
+		}
+
+		newTitle := noteMvTitleFlag
+		if newTitle == "" {
+			return fmt.Errorf("--title/-t is required")
+		}
 
 		newSlug := jot.NewSlug(newTitle, time.Now())
 
@@ -97,9 +110,9 @@ var noteMvCmd = &cobra.Command{
 }
 
 func init() {
-	noteMvCmd.Flags().StringVar(&noteMvSlugFlag, "slug", "", "current note slug")
-	_ = noteMvCmd.MarkFlagRequired("slug")
-	noteMvCmd.Flags().StringVar(&noteMvTitleFlag, "title", "", "new note title")
+	noteMvCmd.Flags().
+		StringVarP(&noteMvSlugFlag, "slug", "s", "", "current note slug (fzf if omitted)")
+	noteMvCmd.Flags().StringVarP(&noteMvTitleFlag, "title", "t", "", "new note title")
 	_ = noteMvCmd.MarkFlagRequired("title")
 }
 

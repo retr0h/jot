@@ -101,6 +101,7 @@ automatically when spawning the editor). Zero manual config.
 
 | Key           | Action                              |
 | ------------- | ----------------------------------- |
+| `<leader>j?`  | Show keybindings (`:JotHelp`)       |
 | `<leader>jf`  | Follow `[[link]]` under cursor      |
 | `<leader>jj`  | Jump to note (fuzzy switch)         |
 | `<leader>js`  | Search notes (ripgrep)              |
@@ -114,11 +115,14 @@ automatically when spawning the editor). Zero manual config.
 
 ### Snippets
 
-Type `@task` + Tab to expand with tab-stop placeholders:
+Type `@task` then Enter to expand with tab-stop placeholders:
 
 ```
-@task(description | due:friday) #tag
+@task(description | due:today) #tag
 ```
+
+Tab jumps between placeholders. Date completions (next 7 days + day
+names) appear automatically while typing the due field.
 
 ## 🤖 MCP Server
 

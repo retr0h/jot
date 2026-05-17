@@ -44,14 +44,30 @@ var (
 // case-insensitive), appends done:YYYY-MM-DD, and writes the file back.
 // Auto-commits after.
 var taskDoneCmd = &cobra.Command{
-	Use:   "done",
-	Short: "Mark a task as complete",
-	Args:  cobra.NoArgs,
+	Use:     "done",
+	Aliases: []string{"d"},
+	Short:   "Mark a task as complete",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
+		notesDir := NotesDir()
+
 		slug := taskDoneSlugFlag
 		desc := taskDoneDescFlag
-		notesDir := NotesDir()
+
+		if slug == "" || desc == "" {
+			pickedSlug, pickedDesc, err := pickTask(notesDir)
+			if err != nil {
+				return err
+			}
+			if slug == "" {
+				slug = pickedSlug
+			}
+			if desc == "" {
+				desc = pickedDesc
+			}
+		}
+
 		notePath := filepath.Join(notesDir, slug+".md")
 
 		data, err := os.ReadFile(notePath)
@@ -99,9 +115,8 @@ var taskDoneCmd = &cobra.Command{
 }
 
 func init() {
-	taskDoneCmd.Flags().StringVar(&taskDoneSlugFlag, "slug", "", "note slug containing the task")
-	_ = taskDoneCmd.MarkFlagRequired("slug")
 	taskDoneCmd.Flags().
-		StringVar(&taskDoneDescFlag, "desc", "", "task description (substring match)")
-	_ = taskDoneCmd.MarkFlagRequired("desc")
+		StringVarP(&taskDoneSlugFlag, "slug", "s", "", "note slug containing the task (fzf if omitted)")
+	taskDoneCmd.Flags().
+		StringVarP(&taskDoneDescFlag, "desc", "D", "", "task description (fzf if omitted)")
 }

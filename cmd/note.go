@@ -21,7 +21,13 @@
 package cmd
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/spf13/cobra"
+
+	"github.com/retr0h/jot/internal/cli"
+	"github.com/retr0h/jot/internal/jot"
 )
 
 // noteCmd is the parent for `jot note` — all note management subcommands.
@@ -34,8 +40,9 @@ import (
 //	search   full-text search across notes
 //	mv       rename a note and rewrite wikilinks
 var noteCmd = &cobra.Command{
-	Use:   "note",
-	Short: "Manage notes",
+	Use:     "note",
+	Aliases: []string{"n"},
+	Short:   "Manage notes",
 }
 
 func init() {
@@ -45,4 +52,24 @@ func init() {
 	noteCmd.AddCommand(noteSearchCmd)
 	noteCmd.AddCommand(noteMvCmd)
 	rootCmd.AddCommand(noteCmd)
+}
+
+func pickNote(notesDir string) (string, error) {
+	notes, err := jot.ListNotes(notesDir, "")
+	if err != nil {
+		return "", fmt.Errorf("list notes: %w", err)
+	}
+
+	items := make([]string, 0, len(notes))
+	for _, n := range notes {
+		items = append(items, fmt.Sprintf("%s  %s", n.Slug, n.Title))
+	}
+
+	selected, err := cli.Pick(items, "select note")
+	if err != nil {
+		return "", err
+	}
+
+	slug, _, _ := strings.Cut(selected, "  ")
+	return slug, nil
 }

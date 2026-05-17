@@ -34,9 +34,10 @@ var noteListTagFlag string
 // noteListCmd implements `jot note list [--tag X]`.
 // Shows: date, title (accent), slug (muted), [secure] indicator.
 var noteListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List notes, optionally filtered by tag",
-	Args:  cobra.NoArgs,
+	Use:     "list",
+	Aliases: []string{"l", "ls"},
+	Short:   "List notes, optionally filtered by tag",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 
@@ -61,5 +62,6 @@ var noteListCmd = &cobra.Command{
 }
 
 func init() {
-	noteListCmd.Flags().StringVar(&noteListTagFlag, "tag", "", "filter notes by tag/label name")
+	noteListCmd.Flags().
+		StringVarP(&noteListTagFlag, "tag", "T", "", "filter notes by tag/label name")
 }

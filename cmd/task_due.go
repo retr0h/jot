@@ -35,9 +35,10 @@ var taskDuePeriodFlag string
 // taskDueCmd implements `jot task due [--period today|week|month]`.
 // Shows: date (overdue=pink, else muted), description (accent), note slug (muted).
 var taskDueCmd = &cobra.Command{
-	Use:   "due",
-	Short: "Show tasks due within a given period (default: week)",
-	Args:  cobra.NoArgs,
+	Use:     "due",
+	Aliases: []string{"du"},
+	Short:   "Show tasks due within a given period (default: week)",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 
@@ -88,5 +89,5 @@ var taskDueCmd = &cobra.Command{
 
 func init() {
 	taskDueCmd.Flags().
-		StringVar(&taskDuePeriodFlag, "period", "week", "time period: today, week, or month")
+		StringVarP(&taskDuePeriodFlag, "period", "p", "week", "time period: today, week, or month")
 }

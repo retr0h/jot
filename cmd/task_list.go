@@ -38,9 +38,10 @@ var (
 // taskListCmd implements `jot task list [--status X] [--tag X]`.
 // Shows: status checkbox, description, due date, note slug.
 var taskListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List tasks, optionally filtered by status or tag",
-	Args:  cobra.NoArgs,
+	Use:     "list",
+	Aliases: []string{"l", "ls"},
+	Short:   "List tasks, optionally filtered by status or tag",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 
@@ -84,6 +85,6 @@ var taskListCmd = &cobra.Command{
 
 func init() {
 	taskListCmd.Flags().
-		StringVar(&taskListStatusFlag, "status", "all", "filter by status: open, done, or all")
-	taskListCmd.Flags().StringVar(&taskListTagFlag, "tag", "", "filter by tag/label name")
+		StringVarP(&taskListStatusFlag, "status", "S", "all", "filter by status: open, done, or all")
+	taskListCmd.Flags().StringVarP(&taskListTagFlag, "tag", "T", "", "filter by tag/label name")
 }

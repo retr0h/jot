@@ -33,16 +33,27 @@ import (
 
 var noteEditSlugFlag string
 
-// noteEditCmd implements `jot note edit --slug <slug>`.
+// noteEditCmd implements `jot note edit [--slug <slug>]`.
 // Opens notesDir/slug.md in the configured editor and auto-commits after.
+// If --slug is omitted, an fzf picker is shown.
 var noteEditCmd = &cobra.Command{
-	Use:   "edit",
-	Short: "Open an existing note in your editor",
-	Args:  cobra.NoArgs,
+	Use:     "edit",
+	Aliases: []string{"e"},
+	Short:   "Open an existing note in your editor",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
-		slug := noteEditSlugFlag
 		notesDir := NotesDir()
+
+		slug := noteEditSlugFlag
+		if slug == "" {
+			picked, err := pickNote(notesDir)
+			if err != nil {
+				return err
+			}
+			slug = picked
+		}
+
 		notePath := filepath.Join(notesDir, slug+".md")
 
 		if err := jot.Edit(notePath, EditorPref()); err != nil {
@@ -64,6 +75,5 @@ var noteEditCmd = &cobra.Command{
 }
 
 func init() {
-	noteEditCmd.Flags().StringVar(&noteEditSlugFlag, "slug", "", "note slug to edit")
-	_ = noteEditCmd.MarkFlagRequired("slug")
+	noteEditCmd.Flags().StringVarP(&noteEditSlugFlag, "slug", "s", "", "note slug to edit")
 }

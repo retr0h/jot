@@ -43,9 +43,10 @@ var (
 // A "/" in the title splits into subdir + title so
 // `jot note new --title "network/Switch Config"` stores the note under notes/network/.
 var noteNewCmd = &cobra.Command{
-	Use:   "new",
-	Short: "Create a new note and open it in your editor",
-	Args:  cobra.NoArgs,
+	Use:     "new",
+	Aliases: []string{"n"},
+	Short:   "Create a new note and open it in your editor",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		rawTitle := noteNewTitleFlag
@@ -96,8 +97,8 @@ var noteNewCmd = &cobra.Command{
 
 func init() {
 	noteNewCmd.Flags().
-		StringVar(&noteNewTitleFlag, "title", "", "note title (use path/title for subdirs)")
+		StringVarP(&noteNewTitleFlag, "title", "t", "", "note title (use path/title for subdirs)")
 	_ = noteNewCmd.MarkFlagRequired("title")
 	noteNewCmd.Flags().
-		BoolVar(&noteSecureFlag, "secure", false, "mark note as secure (sets secure: true in front-matter)")
+		BoolVarP(&noteSecureFlag, "secure", "x", false, "mark note as secure (sets secure: true in front-matter)")
 }

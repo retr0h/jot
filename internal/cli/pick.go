@@ -18,38 +18,44 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package cmd
+package cli
 
 import (
 	"fmt"
-	"sort"
-
-	"github.com/spf13/cobra"
-
-	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
+	"os"
+	"os/exec"
+	"strings"
 )
 
-// tagListCmd implements `jot tag list`.
-// Calls jot.AllTags, sorts alphabetically, and prints each tag in accent.
-var tagListCmd = &cobra.Command{
-	Use:     "list",
-	Aliases: []string{"l", "ls"},
-	Short:   "List all tags",
-	Args:    cobra.NoArgs,
-	RunE: func(c *cobra.Command, _ []string) error {
-		out := c.OutOrStdout()
+// Pick pipes items to fzf and returns the selected line trimmed of
+// whitespace. Returns an error if fzf is not installed, the user
+// cancels (Ctrl-C / Esc), or no items are provided.
+func Pick(
+	items []string,
+	header string,
+) (string, error) {
+	if len(items) == 0 {
+		return "", fmt.Errorf("no items to select from")
+	}
 
-		tags, err := jot.AllTags(NotesDir())
-		if err != nil {
-			return fmt.Errorf("list tags: %w", err)
-		}
+	fzf, err := exec.LookPath("fzf")
+	if err != nil {
+		return "", fmt.Errorf("fzf not found in PATH: %w", err)
+	}
 
-		sort.Strings(tags)
-		for _, tag := range tags {
-			cli.Print(out, cli.Accent(out, tag))
-		}
+	args := []string{"--ansi", "--reverse"}
+	if header != "" {
+		args = append(args, "--header", header)
+	}
 
-		return nil
-	},
+	cmd := exec.Command(fzf, args...)
+	cmd.Stdin = strings.NewReader(strings.Join(items, "\n"))
+	cmd.Stderr = os.Stderr
+
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("fzf cancelled")
+	}
+
+	return strings.TrimSpace(string(out)), nil
 }

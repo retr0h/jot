@@ -21,7 +21,13 @@
 package cmd
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/spf13/cobra"
+
+	"github.com/retr0h/jot/internal/cli"
+	"github.com/retr0h/jot/internal/gitops"
 )
 
 // gitCmd is the parent for `jot git` — version control subcommands over the
@@ -33,8 +39,9 @@ import (
 //	diff   show working-tree diff
 //	show   show a specific commit's patch
 var gitCmd = &cobra.Command{
-	Use:   "git",
-	Short: "Git operations on the notes directory",
+	Use:     "git",
+	Aliases: []string{"g"},
+	Short:   "Git operations on the notes directory",
 }
 
 func init() {
@@ -42,4 +49,32 @@ func init() {
 	gitCmd.AddCommand(gitDiffCmd)
 	gitCmd.AddCommand(gitShowCmd)
 	rootCmd.AddCommand(gitCmd)
+}
+
+func pickCommit(notesDir string) (string, error) {
+	repo, err := gitops.OpenRepo(notesDir)
+	if err != nil {
+		return "", fmt.Errorf("open repo: %w", err)
+	}
+
+	entries, err := repo.Log("", 50)
+	if err != nil {
+		return "", fmt.Errorf("git log: %w", err)
+	}
+
+	items := make([]string, 0, len(entries))
+	for _, e := range entries {
+		items = append(
+			items,
+			fmt.Sprintf("%s  %s  %s", e.Hash[:8], e.Message, e.Date.Format("2006-01-02")),
+		)
+	}
+
+	selected, err := cli.Pick(items, "select commit")
+	if err != nil {
+		return "", err
+	}
+
+	hash, _, _ := strings.Cut(selected, "  ")
+	return hash, nil
 }

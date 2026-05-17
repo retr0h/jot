@@ -21,7 +21,13 @@
 package cmd
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/spf13/cobra"
+
+	"github.com/retr0h/jot/internal/cli"
+	"github.com/retr0h/jot/internal/jot"
 )
 
 // taskCmd is the parent for `jot task` — all task management subcommands.
@@ -32,8 +38,9 @@ import (
 //	done   mark a task as complete by slug + description
 //	due    show tasks due within a time period
 var taskCmd = &cobra.Command{
-	Use:   "task",
-	Short: "Manage tasks",
+	Use:     "task",
+	Aliases: []string{"t"},
+	Short:   "Manage tasks",
 }
 
 func init() {
@@ -41,4 +48,27 @@ func init() {
 	taskCmd.AddCommand(taskDoneCmd)
 	taskCmd.AddCommand(taskDueCmd)
 	rootCmd.AddCommand(taskCmd)
+}
+
+func pickTask(notesDir string) (string, string, error) {
+	tasks, err := jot.AllTasks(notesDir, "open", "")
+	if err != nil {
+		return "", "", fmt.Errorf("list tasks: %w", err)
+	}
+
+	items := make([]string, 0, len(tasks))
+	for _, t := range tasks {
+		items = append(items, fmt.Sprintf("%s\t%s", t.NoteSlug, t.Description))
+	}
+
+	selected, err := cli.Pick(items, "select task")
+	if err != nil {
+		return "", "", err
+	}
+
+	parts := strings.SplitN(selected, "\t", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("unexpected selection format")
+	}
+	return parts[0], parts[1], nil
 }

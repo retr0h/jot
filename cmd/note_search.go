@@ -34,9 +34,10 @@ var noteSearchQueryFlag string
 // noteSearchCmd implements `jot note search --query <query>`.
 // Case-insensitive substring search across note titles and bodies.
 var noteSearchCmd = &cobra.Command{
-	Use:   "search",
-	Short: "Search across notes",
-	Args:  cobra.NoArgs,
+	Use:     "search",
+	Aliases: []string{"s"},
+	Short:   "Search across notes",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		query := noteSearchQueryFlag
@@ -57,6 +58,6 @@ var noteSearchCmd = &cobra.Command{
 }
 
 func init() {
-	noteSearchCmd.Flags().StringVar(&noteSearchQueryFlag, "query", "", "search query")
+	noteSearchCmd.Flags().StringVarP(&noteSearchQueryFlag, "query", "q", "", "search query")
 	_ = noteSearchCmd.MarkFlagRequired("query")
 }
