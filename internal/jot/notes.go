@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -38,25 +39,25 @@ var headingRe = regexp.MustCompile(`(?m)^#\s+(.+)$`)
 // Note is a markdown note backed by a .md file on disk. SQLite is not
 // involved; the file is the single source of truth.
 type Note struct {
-	Slug    string
-	Title   string
-	Tags    []string
-	Secure  bool
-	Created string
-	Path    string
-	Body    string
-	Tasks   []Task
-	Links   []string
+	Slug    string   `json:"slug"`
+	Title   string   `json:"title"`
+	Tags    []string `json:"tags"`
+	Secure  bool     `json:"secure"`
+	Created string   `json:"created"`
+	Path    string   `json:"path"`
+	Body    string   `json:"body"`
+	Tasks   []Task   `json:"tasks"`
+	Links   []string `json:"links"`
 }
 
 // Task is a @task item extracted from a note's markdown body.
 type Task struct {
-	NoteSlug    string
-	Description string
-	DueDate     string
-	Tags        []string
-	Done        string
-	Line        int
+	NoteSlug    string   `json:"note_slug"`
+	Description string   `json:"description"`
+	DueDate     string   `json:"due_date"`
+	Tags        []string `json:"tags"`
+	Done        string   `json:"done"`
+	Line        int      `json:"line"`
 }
 
 // ReadNote reads the .md file at path, parses its front-matter, @task markers,
@@ -143,7 +144,6 @@ func ReadAllNotes(notesDir string) ([]*Note, error) {
 	var wg sync.WaitGroup
 	wg.Add(len(paths))
 	for i, p := range paths {
-		i, p := i, p
 		go func() {
 			defer wg.Done()
 			n, err := ReadNote(p)
@@ -312,12 +312,7 @@ func AllTags(notesDir string) ([]string, error) {
 
 // hasLabel reports whether labels contains the given value.
 func hasLabel(labels []string, value string) bool {
-	for _, l := range labels {
-		if l == value {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(labels, value)
 }
 
 // matchStatus reports whether task t matches the requested status filter.

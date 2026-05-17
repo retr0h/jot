@@ -22,6 +22,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -63,6 +64,7 @@ var taskListCmd = &cobra.Command{
 			desc string
 			due  string
 			note string
+			tags string
 		}
 
 		rows := make([]row, 0, len(tasks))
@@ -73,11 +75,16 @@ var taskListCmd = &cobra.Command{
 					due = resolved.Format("2006-01-02")
 				}
 			}
+			tags := ""
+			if len(t.Tags) > 0 {
+				tags = "#" + strings.Join(t.Tags, " #")
+			}
 			rows = append(rows, row{
 				done: t.Done != "",
 				desc: t.Description,
 				due:  due,
 				note: t.NoteSlug,
+				tags: tags,
 			})
 		}
 
@@ -96,7 +103,19 @@ var taskListCmd = &cobra.Command{
 
 		cli.Printf(out, "%s\n", cli.Mute(
 			out,
-			cli.Pad("STATUS", 8)+cli.Pad("DESCRIPTION", descW+2)+cli.Pad("DUE", dueW+2)+"NOTE",
+			cli.Pad(
+				"STATUS",
+				8,
+			)+cli.Pad(
+				"DESCRIPTION",
+				descW+2,
+			)+cli.Pad(
+				"DUE",
+				dueW+2,
+			)+cli.Pad(
+				"NOTE",
+				noteW+2,
+			)+"TAGS",
 		))
 
 		theme := cli.ActiveTheme()
@@ -143,9 +162,14 @@ var taskListCmd = &cobra.Command{
 				dueCol = renderCol(theme.Info, padded)
 			}
 
-			note := renderCol(theme.Mute, r.note)
+			note := renderCol(theme.Mute, cli.Pad(r.note, noteW+2))
 
-			cli.Printf(out, "%s%s%s%s\n", status, desc, dueCol, note)
+			tagCol := renderCol(theme.Mute, "-")
+			if r.tags != "" {
+				tagCol = renderCol(theme.Tag, r.tags)
+			}
+
+			cli.Printf(out, "%s%s%s%s%s\n", status, desc, dueCol, note, tagCol)
 		}
 
 		return nil

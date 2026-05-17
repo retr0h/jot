@@ -45,6 +45,22 @@ jot (binary)
 - **Tests, not test plans** — table-driven, `foo.go ↔ foo_test.go`.
 - **No inline hex colors** — palette constants in `internal/cli/theme.go`.
 
+## Color palette (Max Headroom)
+
+```
+#c678dd  magenta   accent, banner, titles
+#00d4ff  cyan      info hints, dates
+#ffb86c  orange    tags
+#50fa7b  green     success, done tasks
+#e5c07b  yellow    (reserved)
+#ff6ec7  pink      errors, overdue tasks
+#6272a4  lavender  muted states
+#c0caf5  fg        default text
+#3b4261  drained   separators, dim text
+```
+
+No inline hex colors — palette constants live in `internal/cli/theme.go`.
+
 ## Building
 
 ```bash
