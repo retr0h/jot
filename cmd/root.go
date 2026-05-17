@@ -138,10 +138,9 @@ func initConfig() {
 	}
 
 	svc = &jot.Service{
-		NotesDir:  appConfig.NotesDir,
-		ConfigDir: appConfig.Dir,
-		SSHKeys:   appConfig.SSHKeys,
-		Prompt:    cli.PassphrasePrompt,
+		NotesDir: appConfig.NotesDir,
+		SSHKeys:  appConfig.SSHKeys,
+		Prompt:   cli.PassphrasePrompt,
 	}
 }
 

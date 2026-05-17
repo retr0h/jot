@@ -62,10 +62,11 @@ Passphrase-protected keys prompt via `/dev/tty`.
 ~/.config/jot/
 ├── jot.yaml           # user config
 └── notes/
+    ├── .git/          # git repo tracking the notes directory
+    ├── .kvlt/jot/     # age-encrypted note bodies (tracked by git)
     ├── scratch.md     # persistent scratch pad (created by init)
     ├── *.md           # plain notes
-    ├── subdir/*.md    # nested notes
-    └── .git/          # git repo tracking the notes directory
+    └── subdir/*.md    # nested notes
 ```
 
 ## Editor

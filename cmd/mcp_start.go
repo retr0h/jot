@@ -55,10 +55,9 @@ var mcpStartCmd = &cobra.Command{
 		defer cancel()
 
 		svc := &jot.Service{
-			NotesDir:  notesDir,
-			ConfigDir: ConfigDir(),
-			SSHKeys:   SSHKeys(),
-			Prompt:    nil,
+			NotesDir: notesDir,
+			SSHKeys:  SSHKeys(),
+			Prompt:   nil,
 		}
 
 		s, err := mcppkg.New(mcppkg.Config{

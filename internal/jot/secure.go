@@ -35,13 +35,13 @@ type SecureStore struct {
 	provider kvlt.Provider
 }
 
-// NewSecureStore opens the "jot" vault from the kvlt store at configDir.
+// NewSecureStore opens the "jot" vault from the kvlt store at storeDir.
 // When sshKeys is non-empty, only those paths are used for identity
 // resolution; otherwise kvlt's default SSH key discovery is used.
 // The prompt function is called when a passphrase-protected key needs
 // unlocking; pass nil if no interactive prompt is available.
 func NewSecureStore(
-	configDir string,
+	storeDir string,
 	sshKeys []string,
 	prompt kvlt.PassphrasePrompt,
 ) (*SecureStore, error) {
@@ -54,7 +54,7 @@ func NewSecureStore(
 		resolver = kvlt.DefaultIdentityResolver(prompt)
 	}
 
-	store, err := kvlt.NewStore(configDir, resolver)
+	store, err := kvlt.NewStore(storeDir, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("kvlt store: %w", err)
 	}
@@ -96,9 +96,9 @@ func (s *SecureStore) DeleteNote(ctx context.Context, slug string) error {
 	return nil
 }
 
-// InitVault creates the kvlt vault named "jot" in configDir with the given recipients.
-func InitVault(configDir string, recipientStrings []string) error {
-	store, err := kvlt.NewStore(configDir, nil)
+// InitVault creates the kvlt vault named "jot" in storeDir with the given recipients.
+func InitVault(storeDir string, recipientStrings []string) error {
+	store, err := kvlt.NewStore(storeDir, nil)
 	if err != nil {
 		return fmt.Errorf("kvlt store: %w", err)
 	}
