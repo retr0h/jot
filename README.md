@@ -136,16 +136,20 @@ Auto-discovered by Claude Code via [`.mcp.json`](.mcp.json):
 }
 ```
 
-| Tool           | Description                                                    |
-| -------------- | -------------------------------------------------------------- |
-| `list_notes`   | List notes, optionally filtered by tag                         |
+| Tool           | Description                                                      |
+| -------------- | ---------------------------------------------------------------- |
+| `list_notes`   | List notes, optionally filtered by tag                           |
 | `get_note`     | Read full markdown by slug (transparently decrypts secure notes) |
-| `create_note`  | Create a note with frontmatter (supports `secure: true`)       |
-| `delete_note`  | Remove a note file                                             |
-| `search_notes` | Full-text search                                               |
-| `list_tasks`   | Tasks filtered by status/tag                                   |
-| `tasks_due`    | Tasks due in a date range                                      |
-| `list_tags`    | All tags across notes                                          |
+| `create_note`  | Create a note with frontmatter (supports `secure: true`)         |
+| `delete_note`  | Remove a note file                                               |
+| `search_notes` | Full-text search                                                 |
+| `rename_note`  | Rename a note and rewrite all `[[wikilinks]]`                    |
+| `encrypt_note` | Encrypt an existing note via kvlt                                |
+| `decrypt_note` | Decrypt a secure note back to plaintext                          |
+| `list_tasks`   | Tasks filtered by status/tag                                     |
+| `task_done`    | Mark a task as complete                                          |
+| `tasks_due`    | Tasks due in a date range                                        |
+| `list_tags`    | All tags across notes                                            |
 
 Secure notes over MCP require passphrase-free SSH keys configured in
 `ssh_keys` — there is no TTY for interactive prompts.

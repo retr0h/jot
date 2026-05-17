@@ -200,12 +200,22 @@ without .md), a title, and optional tags in YAML front-matter.
 - create_note   write a new markdown note with front-matter scaffold
 - delete_note   remove a note file from disk
 - search_notes  case-insensitive substring search across note titles and bodies
+- rename_note   rename a note and rewrite all [[wikilinks]] referencing it
+
+## Scratch
+
+The note with slug "scratch" is a persistent scratch pad. It always exists
+(created by jot init). Use it for quick dumps — get_note with slug "scratch"
+to read it, or create_note won't overwrite it.
 
 ## Secure Notes
 
 Notes with secure: true in front-matter are encrypted via kvlt (age + SSH keys).
 get_note transparently decrypts secure notes. create_note accepts a secure flag
 to encrypt the body on creation.
+
+- encrypt_note  encrypt an existing plaintext note (body moves to kvlt)
+- decrypt_note  decrypt a secure note back to plaintext on disk
 
 IMPORTANT: Secure note operations require passphrase-free SSH keys configured in
 the ssh_keys config option. There is no TTY available for interactive passphrase
@@ -218,6 +228,7 @@ Tasks are @task markers embedded in notes. They carry an optional due date
 and optional inline #tags.
 
 - list_tasks    list tasks filtered by status (open/done/all) and tag
+- task_done     mark a task as complete (appends done:YYYY-MM-DD)
 - tasks_due     list open tasks due today, this_week, or this_month
 
 ## Tags
