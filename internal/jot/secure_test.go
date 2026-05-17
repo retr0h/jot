@@ -63,36 +63,156 @@ func (f *fakeProvider) Delete(_ context.Context, key string) error {
 
 func (f *fakeProvider) Name() string { return "test" }
 
-func TestSecureStoreWriteRead(t *testing.T) {
-	provider := &fakeProvider{data: make(map[string]string)}
-	ss := jot.NewSecureStoreFromProvider(provider)
+func TestSecureStore_WriteNote(t *testing.T) {
+	t.Parallel()
 
-	ctx := context.Background()
-	if err := ss.WriteNote(ctx, "secret-note", "top secret"); err != nil {
-		t.Fatalf("WriteNote: %v", err)
+	tests := []struct {
+		name    string
+		slug    string
+		body    string
+		wantErr bool
+	}{
+		{
+			name: "writes note successfully",
+			slug: "secret-note",
+			body: "top secret",
+		},
+		{
+			name: "overwrites existing note",
+			slug: "secret-note",
+			body: "updated secret",
+		},
+		{
+			name: "empty body is valid",
+			slug: "empty-body",
+			body: "",
+		},
 	}
-	body, err := ss.ReadNote(ctx, "secret-note")
-	if err != nil {
-		t.Fatalf("ReadNote: %v", err)
-	}
-	if body != "top secret" {
-		t.Errorf("body = %q, want %q", body, "top secret")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			provider := &fakeProvider{data: make(map[string]string)}
+			ss := jot.NewSecureStoreFromProvider(provider)
+			ctx := context.Background()
+
+			err := ss.WriteNote(ctx, tt.slug, tt.body)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("WriteNote: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("WriteNote: unexpected error: %v", err)
+			}
+
+			got, err := ss.ReadNote(ctx, tt.slug)
+			if err != nil {
+				t.Fatalf("ReadNote after write: %v", err)
+			}
+			if got != tt.body {
+				t.Errorf("body = %q, want %q", got, tt.body)
+			}
+		})
 	}
 }
 
-func TestSecureStoreDelete(t *testing.T) {
-	provider := &fakeProvider{data: make(map[string]string)}
-	ss := jot.NewSecureStoreFromProvider(provider)
+func TestSecureStore_ReadNote(t *testing.T) {
+	t.Parallel()
 
-	ctx := context.Background()
-	if err := ss.WriteNote(ctx, "secret-note", "content"); err != nil {
-		t.Fatalf("WriteNote: %v", err)
+	tests := []struct {
+		name    string
+		seed    map[string]string
+		slug    string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "reads existing note",
+			seed: map[string]string{"my-note": "hello world"},
+			slug: "my-note",
+			want: "hello world",
+		},
+		{
+			name:    "missing note returns error",
+			seed:    map[string]string{},
+			slug:    "nonexistent",
+			wantErr: true,
+		},
 	}
-	if err := ss.DeleteNote(ctx, "secret-note"); err != nil {
-		t.Fatalf("DeleteNote: %v", err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			provider := &fakeProvider{data: tt.seed}
+			ss := jot.NewSecureStoreFromProvider(provider)
+			ctx := context.Background()
+
+			got, err := ss.ReadNote(ctx, tt.slug)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("ReadNote: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ReadNote: unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("body = %q, want %q", got, tt.want)
+			}
+		})
 	}
-	_, err := ss.ReadNote(ctx, "secret-note")
-	if err == nil {
-		t.Fatal("expected error after delete")
+}
+
+func TestSecureStore_DeleteNote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		seed    map[string]string
+		slug    string
+		wantErr bool
+	}{
+		{
+			name: "deletes existing note",
+			seed: map[string]string{"secret-note": "content"},
+			slug: "secret-note",
+		},
+		{
+			name:    "deleting nonexistent note returns error",
+			seed:    map[string]string{},
+			slug:    "ghost",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			provider := &fakeProvider{data: tt.seed}
+			ss := jot.NewSecureStoreFromProvider(provider)
+			ctx := context.Background()
+
+			err := ss.DeleteNote(ctx, tt.slug)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("DeleteNote: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DeleteNote: unexpected error: %v", err)
+			}
+
+			_, err = ss.ReadNote(ctx, tt.slug)
+			if err == nil {
+				t.Fatal("ReadNote after delete: expected error, got nil")
+			}
+		})
 	}
 }

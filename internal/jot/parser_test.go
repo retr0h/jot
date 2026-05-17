@@ -21,17 +21,24 @@
 package jot_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/retr0h/jot/internal/jot"
 )
 
 func TestParseTasks(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		name      string
-		content   string
-		wantCount int
-		wantDesc  string
+		name       string
+		content    string
+		wantCount  int
+		wantDesc   string
+		wantDue    string
+		wantDone   bool
+		wantDoneAt string
+		wantLabels []string
 	}{
 		{
 			name:      "open checkbox task",
@@ -44,12 +51,32 @@ func TestParseTasks(t *testing.T) {
 			content:   "- [x] review meshx PR",
 			wantCount: 1,
 			wantDesc:  "review meshx PR",
+			wantDone:  true,
 		},
 		{
-			name:      "task with due date and tags",
-			content:   "- [ ] review meshx PR | due:2026-05-16 #meshx #pr",
-			wantCount: 1,
-			wantDesc:  "review meshx PR",
+			name:       "task with due date and tags",
+			content:    "- [ ] review meshx PR | due:2026-05-16 #meshx #pr",
+			wantCount:  1,
+			wantDesc:   "review meshx PR",
+			wantDue:    "2026-05-16",
+			wantLabels: []string{"meshx", "pr"},
+		},
+		{
+			name:       "done task with due and done dates",
+			content:    "- [x] reviewed PR | due:2026-05-16 | done:2026-05-17 #work",
+			wantCount:  1,
+			wantDesc:   "reviewed PR",
+			wantDue:    "2026-05-16",
+			wantDone:   true,
+			wantDoneAt: "2026-05-17",
+			wantLabels: []string{"work"},
+		},
+		{
+			name:       "task with tags but no due date",
+			content:    "- [ ] review meshx PR #meshx #pr",
+			wantCount:  1,
+			wantDesc:   "review meshx PR",
+			wantLabels: []string{"meshx", "pr"},
 		},
 		{
 			name:      "multiple tasks",
@@ -63,131 +90,65 @@ func TestParseTasks(t *testing.T) {
 			wantCount: 0,
 		},
 		{
+			name:      "empty content",
+			content:   "",
+			wantCount: 0,
+		},
+		{
 			name:      "task in middle of document",
 			content:   "# Title\n\ntext\n\n- [ ] fix bug\n\nDone.",
 			wantCount: 1,
 			wantDesc:  "fix bug",
 		},
-		{
-			name:      "done task",
-			content:   "- [x] reviewed PR",
-			wantCount: 1,
-			wantDesc:  "reviewed PR",
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := jot.ParseTasks(tt.content)
 			if len(got) != tt.wantCount {
-				t.Errorf(
+				t.Fatalf(
 					"ParseTasks(%q): got %d tasks, want %d",
 					tt.content,
 					len(got),
 					tt.wantCount,
 				)
 			}
-			if tt.wantCount > 0 && tt.wantDesc != "" {
-				if got[0].Description != tt.wantDesc {
-					t.Errorf(
-						"ParseTasks(%q): first desc = %q, want %q",
-						tt.content,
-						got[0].Description,
-						tt.wantDesc,
-					)
+			if tt.wantCount == 0 {
+				return
+			}
+
+			task := got[0]
+			if tt.wantDesc != "" && task.Description != tt.wantDesc {
+				t.Errorf("Description = %q, want %q", task.Description, tt.wantDesc)
+			}
+			if task.Done != tt.wantDone {
+				t.Errorf("Done = %v, want %v", task.Done, tt.wantDone)
+			}
+			if tt.wantDue != "" && task.DueDate != tt.wantDue {
+				t.Errorf("DueDate = %q, want %q", task.DueDate, tt.wantDue)
+			}
+			if tt.wantDoneAt != "" && task.DoneDate != tt.wantDoneAt {
+				t.Errorf("DoneDate = %q, want %q", task.DoneDate, tt.wantDoneAt)
+			}
+			if tt.wantLabels != nil {
+				if len(task.Labels) != len(tt.wantLabels) {
+					t.Fatalf("Labels = %v, want %v", task.Labels, tt.wantLabels)
+				}
+				for i, l := range tt.wantLabels {
+					if task.Labels[i] != l {
+						t.Errorf("Labels[%d] = %q, want %q", i, task.Labels[i], l)
+					}
 				}
 			}
 		})
 	}
 }
 
-func TestParseTaskWithDueAndTags(t *testing.T) {
-	content := "- [ ] review meshx PR | due:2026-05-16 #meshx #pr"
-	tasks := jot.ParseTasks(content)
-
-	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks))
-	}
-
-	task := tasks[0]
-
-	if task.DueDate != "2026-05-16" {
-		t.Errorf("DueDate = %q, want %q", task.DueDate, "2026-05-16")
-	}
-
-	wantLabels := []string{"meshx", "pr"}
-	if len(task.Labels) != len(wantLabels) {
-		t.Fatalf("Labels = %v, want %v", task.Labels, wantLabels)
-	}
-	for i, l := range wantLabels {
-		if task.Labels[i] != l {
-			t.Errorf("Labels[%d] = %q, want %q", i, task.Labels[i], l)
-		}
-	}
-
-	if task.Done {
-		t.Error("expected Done = false")
-	}
-}
-
-func TestParseTaskDone(t *testing.T) {
-	content := "- [x] reviewed PR"
-	tasks := jot.ParseTasks(content)
-
-	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks))
-	}
-
-	if !tasks[0].Done {
-		t.Error("expected Done = true")
-	}
-}
-
-func TestParseTaskDoneDate(t *testing.T) {
-	content := "- [x] reviewed PR | due:2026-05-16 | done:2026-05-17 #work"
-	tasks := jot.ParseTasks(content)
-
-	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks))
-	}
-
-	task := tasks[0]
-	if !task.Done {
-		t.Error("expected Done = true")
-	}
-	if task.DoneDate != "2026-05-17" {
-		t.Errorf("DoneDate = %q, want %q", task.DoneDate, "2026-05-17")
-	}
-	if task.DueDate != "2026-05-16" {
-		t.Errorf("DueDate = %q, want %q", task.DueDate, "2026-05-16")
-	}
-}
-
-func TestParseTaskTags(t *testing.T) {
-	content := "- [ ] review meshx PR #meshx #pr"
-	tasks := jot.ParseTasks(content)
-
-	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks))
-	}
-
-	task := tasks[0]
-	if task.Description != "review meshx PR" {
-		t.Errorf("Description = %q, want %q", task.Description, "review meshx PR")
-	}
-
-	wantLabels := []string{"meshx", "pr"}
-	if len(task.Labels) != len(wantLabels) {
-		t.Fatalf("Labels = %v, want %v", task.Labels, wantLabels)
-	}
-	for i, l := range wantLabels {
-		if task.Labels[i] != l {
-			t.Errorf("Labels[%d] = %q, want %q", i, task.Labels[i], l)
-		}
-	}
-}
-
 func TestFormatTask(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		task jot.RawTask
@@ -218,7 +179,7 @@ func TestFormatTask(t *testing.T) {
 			want: "- [x] review PR",
 		},
 		{
-			name: "done with due",
+			name: "done with due and labels",
 			task: jot.RawTask{
 				Description: "review PR",
 				DueDate:     "2026-05-16",
@@ -238,10 +199,17 @@ func TestFormatTask(t *testing.T) {
 			},
 			want: "- [x] review PR | due:2026-05-16 | done:2026-05-17 #work",
 		},
+		{
+			name: "bare description only",
+			task: jot.RawTask{Description: "simple task"},
+			want: "- [ ] simple task",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := jot.FormatTask(tt.task)
 			if got != tt.want {
 				t.Errorf("FormatTask() = %q, want %q", got, tt.want)
@@ -251,62 +219,138 @@ func TestFormatTask(t *testing.T) {
 }
 
 func TestDiffTasks(t *testing.T) {
-	oldContent := "- [ ] review meshx PR | due:2026-05-16 #meshx #pr"
-	newContent := "- [ ] review meshx PR | due:2026-05-16 #meshx #pr\n- [ ] fix bug"
+	t.Parallel()
 
-	added, removed, unchanged := jot.DiffTasks(oldContent, newContent)
-
-	if len(added) != 1 {
-		t.Errorf("added: got %d, want 1", len(added))
+	tests := []struct {
+		name          string
+		oldContent    string
+		newContent    string
+		wantAdded     int
+		wantRemoved   int
+		wantUnchanged int
+		wantAddedDesc string
+	}{
+		{
+			name:          "task added",
+			oldContent:    "- [ ] review meshx PR | due:2026-05-16 #meshx #pr",
+			newContent:    "- [ ] review meshx PR | due:2026-05-16 #meshx #pr\n- [ ] fix bug",
+			wantAdded:     1,
+			wantRemoved:   0,
+			wantUnchanged: 1,
+			wantAddedDesc: "fix bug",
+		},
+		{
+			name:          "task removed",
+			oldContent:    "- [ ] first\n- [ ] second",
+			newContent:    "- [ ] first",
+			wantAdded:     0,
+			wantRemoved:   1,
+			wantUnchanged: 1,
+		},
+		{
+			name:          "no changes",
+			oldContent:    "- [ ] only task",
+			newContent:    "- [ ] only task",
+			wantAdded:     0,
+			wantRemoved:   0,
+			wantUnchanged: 1,
+		},
+		{
+			name:          "both empty",
+			oldContent:    "no tasks here",
+			newContent:    "still no tasks",
+			wantAdded:     0,
+			wantRemoved:   0,
+			wantUnchanged: 0,
+		},
 	}
-	if added[0].Description != "fix bug" {
-		t.Errorf("added[0].Description = %q, want %q", added[0].Description, "fix bug")
-	}
 
-	if len(removed) != 0 {
-		t.Errorf("removed: got %d, want 0", len(removed))
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	if len(unchanged) != 1 {
-		t.Errorf("unchanged: got %d, want 1", len(unchanged))
+			added, removed, unchanged := jot.DiffTasks(tt.oldContent, tt.newContent)
+
+			if len(added) != tt.wantAdded {
+				t.Errorf("added: got %d, want %d", len(added), tt.wantAdded)
+			}
+			if len(removed) != tt.wantRemoved {
+				t.Errorf("removed: got %d, want %d", len(removed), tt.wantRemoved)
+			}
+			if len(unchanged) != tt.wantUnchanged {
+				t.Errorf("unchanged: got %d, want %d", len(unchanged), tt.wantUnchanged)
+			}
+			if tt.wantAddedDesc != "" && len(added) > 0 {
+				if added[0].Description != tt.wantAddedDesc {
+					t.Errorf(
+						"added[0].Description = %q, want %q",
+						added[0].Description,
+						tt.wantAddedDesc,
+					)
+				}
+			}
+		})
 	}
 }
 
 func TestApplyResolutions(t *testing.T) {
-	content := "# Notes\n\n- [ ] review meshx PR\n- [ ] fix bug\n\nDone."
+	t.Parallel()
 
-	resolutions := map[int]string{
-		3: "- [x] review meshx PR | due:2026-05-16 #meshx #pr",
-		4: "- [x] fix bug",
+	tests := []struct {
+		name        string
+		content     string
+		resolutions map[int]string
+		wantLines   map[int]string
+	}{
+		{
+			name:    "replace multiple lines",
+			content: "# Notes\n\n- [ ] review meshx PR\n- [ ] fix bug\n\nDone.",
+			resolutions: map[int]string{
+				3: "- [x] review meshx PR | due:2026-05-16 #meshx #pr",
+				4: "- [x] fix bug",
+			},
+			wantLines: map[int]string{
+				3: "- [x] review meshx PR | due:2026-05-16 #meshx #pr",
+				4: "- [x] fix bug",
+			},
+		},
+		{
+			name:        "out of bounds line numbers are ignored",
+			content:     "line one\nline two",
+			resolutions: map[int]string{99: "nope", -1: "nope"},
+			wantLines: map[int]string{
+				1: "line one",
+				2: "line two",
+			},
+		},
+		{
+			name:        "empty resolutions returns content unchanged",
+			content:     "# Title\n\nbody",
+			resolutions: map[int]string{},
+			wantLines: map[int]string{
+				1: "# Title",
+				3: "body",
+			},
+		},
 	}
 
-	got := jot.ApplyResolutions(content, resolutions)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	wantLine3 := "- [x] review meshx PR | due:2026-05-16 #meshx #pr"
-	wantLine4 := "- [x] fix bug"
+			got := jot.ApplyResolutions(tt.content, tt.resolutions)
+			lines := strings.Split(got, "\n")
 
-	lines := splitLines(got)
-	if len(lines) < 4 {
-		t.Fatalf("expected at least 4 lines, got %d", len(lines))
+			for lineNum, want := range tt.wantLines {
+				idx := lineNum - 1
+				if idx < 0 || idx >= len(lines) {
+					t.Errorf("line %d: out of bounds (got %d lines)", lineNum, len(lines))
+					continue
+				}
+				if lines[idx] != want {
+					t.Errorf("line %d = %q, want %q", lineNum, lines[idx], want)
+				}
+			}
+		})
 	}
-
-	if lines[2] != wantLine3 {
-		t.Errorf("line 3 = %q, want %q", lines[2], wantLine3)
-	}
-	if lines[3] != wantLine4 {
-		t.Errorf("line 4 = %q, want %q", lines[3], wantLine4)
-	}
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	lines = append(lines, s[start:])
-	return lines
 }
