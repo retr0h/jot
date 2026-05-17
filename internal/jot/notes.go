@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Package jot holds the core logic — filesystem-backed notes, @task parser,
+// Package jot holds the core logic — filesystem-backed notes, task parser,
 // editor integration, and kvlt-backed encryption.
 package jot
 
@@ -84,15 +84,17 @@ func ReadNote(path string) (*Note, error) {
 	raw := ParseTasks(body)
 	tasks := make([]Task, 0, len(raw))
 	for _, r := range raw {
+		done := ""
+		if r.Done {
+			done = "done"
+		}
 		t := Task{
 			NoteSlug:    slug,
 			Description: r.Description,
 			DueDate:     r.DueDate,
-			Done:        r.DoneDate,
+			Done:        done,
 			Line:        r.Line,
 		}
-		// Tags come from inline #tags on the same line — already populated
-		// by ParseTasks via ParseLineTags.
 		t.Tags = r.Labels
 		tasks = append(tasks, t)
 	}

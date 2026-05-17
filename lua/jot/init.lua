@@ -10,6 +10,7 @@ local defaults = {
     new       = '<leader>jn',
     done      = '<leader>jx',
     follow    = '<leader>jf',
+    help      = '<leader>j?',
   },
 }
 
@@ -30,7 +31,11 @@ function M.setup(opts)
           ['x'] = { char = 'x', order = 2 },
         },
       },
-      completion = { nvim_cmp = true, min_chars = 2 },
+      completion = {
+        nvim_cmp = true,
+        min_chars = 2,
+        prepend_note_id = false,
+      },
     })
   end
 
@@ -65,26 +70,139 @@ function M.setup(opts)
     vim.keymap.set('n', k.follow, ':ObsidianFollowLink<CR>', { desc = 'jot: follow link' })
   end
 
-  -- LuaSnip @task snippets
+  -- :JotHelp floating window
+  local function show_help()
+    local lines = { ' jot keybindings', '' }
+    local descs = {
+      jump      = 'jump to note',
+      search    = 'search',
+      tags      = 'tags',
+      backlinks = 'backlinks',
+      links     = 'links',
+      new       = 'new note',
+      done      = 'toggle done',
+      follow    = 'follow link',
+    }
+    local max_lhs = 0
+    local entries = {}
+    for name, lhs in pairs(k) do
+      if lhs then
+        max_lhs = math.max(max_lhs, #lhs)
+        table.insert(entries, { lhs = lhs, desc = descs[name] or name })
+      end
+    end
+    table.sort(entries, function(a, b) return a.lhs < b.lhs end)
+    for _, e in ipairs(entries) do
+      table.insert(lines, '  ' .. e.lhs .. string.rep(' ', max_lhs - #e.lhs) .. '  ' .. e.desc)
+    end
+    table.insert(lines, '')
+    table.insert(lines, ' press q to close')
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+    vim.bo[buf].bufhidden = 'wipe'
+
+    local width = 0
+    for _, l in ipairs(lines) do width = math.max(width, #l) end
+    width = width + 2
+    local height = #lines
+    local row = math.floor((vim.o.lines - height) / 2)
+    local col = math.floor((vim.o.columns - width) / 2)
+
+    vim.api.nvim_open_win(buf, true, {
+      relative = 'editor',
+      row = row,
+      col = col,
+      width = width,
+      height = height,
+      style = 'minimal',
+      border = 'rounded',
+      title = ' jot ',
+      title_pos = 'center',
+    })
+
+    vim.keymap.set('n', 'q', '<cmd>close<CR>', { buffer = buf, nowait = true })
+    vim.keymap.set('n', '<Esc>', '<cmd>close<CR>', { buffer = buf, nowait = true })
+  end
+
+  vim.api.nvim_create_user_command('JotHelp', show_help, { desc = 'jot: show keybindings' })
+  if k.help then
+    vim.keymap.set('n', k.help, show_help, { desc = 'jot: show keybindings' })
+  end
+
+  -- LuaSnip task snippet + jump keymaps
   local ls_ok, ls = pcall(require, 'luasnip')
   if ls_ok then
     local s, t, i = ls.snippet, ls.text_node, ls.insert_node
     ls.add_snippets('markdown', {
-      s('@task', {
-        t('@task('),
+      s({ trig = '@task', wordTrig = false }, {
+        t('- [ ] '),
         i(1, 'description'),
         t(' | due:'),
-        i(2, 'friday'),
-        t(') #'),
+        i(2, 'today'),
+        t(' #'),
         i(3, 'tag'),
       }),
-      s('@taskd', {
-        t('@task('),
-        i(1, 'description'),
-        t(') #'),
-        i(2, 'tag'),
-      }),
-    })
+    }, { key = 'jot' })
+
+    local cmp_ok, cmp = pcall(require, 'cmp')
+    if cmp_ok then
+      local dates_src = {}
+      dates_src.new = function()
+        return setmetatable({}, { __index = dates_src })
+      end
+      dates_src.get_debug_name = function() return 'jot_dates' end
+      dates_src.is_available = function() return true end
+      dates_src.get_keyword_length = function() return 1 end
+      dates_src.complete = function(_, _, callback)
+        local items = {}
+        local now = os.time()
+        for d = 0, 6 do
+          table.insert(items, { label = os.date('%Y-%m-%d', now + d * 86400) })
+        end
+        for _, w in ipairs({
+          'today', 'tomorrow',
+          'monday', 'mon', 'tuesday', 'tue', 'wednesday', 'wed',
+          'thursday', 'thu', 'friday', 'fri', 'saturday', 'sat', 'sunday', 'sun',
+          'next week',
+        }) do
+          table.insert(items, { label = w })
+        end
+        callback({ items = items, isIncomplete = false })
+      end
+
+      cmp.register_source('jot_dates', dates_src.new())
+
+      cmp.setup.filetype('markdown', {
+        sources = cmp.config.sources({
+          { name = 'obsidian' },
+          { name = 'obsidian_new' },
+          { name = 'obsidian_tags' },
+          { name = 'luasnip', keyword_pattern = [[\%(@\)\?\k\+]] },
+          { name = 'jot_dates' },
+          { name = 'buffer' },
+          { name = 'path' },
+        }),
+      })
+    end
+
+    vim.keymap.set({ 'i', 's' }, '<Tab>', function()
+      if ls.expand_or_jumpable() then
+        ls.expand_or_jump()
+      else
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<Tab>', true, true, true), 'n', false)
+      end
+    end, { desc = 'jot: snippet jump forward' })
+
+    vim.keymap.set({ 'i', 's' }, '<S-Tab>', function()
+      if ls.jumpable(-1) then
+        ls.jump(-1)
+      else
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<S-Tab>', true, true, true), 'n', false)
+      end
+    end, { desc = 'jot: snippet jump back' })
+
   end
 end
 

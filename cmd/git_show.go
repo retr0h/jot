@@ -37,13 +37,22 @@ var (
 // gitShowCmd implements `jot git show --commit <hash> [--note slug]`.
 // Prints the patch for the given commit hash, optionally filtered to a note.
 var gitShowCmd = &cobra.Command{
-	Use:   "show",
-	Short: "Show a specific commit's patch",
-	Args:  cobra.NoArgs,
+	Use:     "show",
+	Aliases: []string{"s"},
+	Short:   "Show a specific commit's patch",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
-		commit := gitShowCommitFlag
 		notesDir := NotesDir()
+
+		commit := gitShowCommitFlag
+		if commit == "" {
+			picked, err := pickCommit(notesDir)
+			if err != nil {
+				return err
+			}
+			commit = picked
+		}
 
 		repo, err := gitops.OpenRepo(notesDir)
 		if err != nil {
@@ -66,7 +75,8 @@ var gitShowCmd = &cobra.Command{
 }
 
 func init() {
-	gitShowCmd.Flags().StringVar(&gitShowCommitFlag, "commit", "", "commit hash to show")
-	_ = gitShowCmd.MarkFlagRequired("commit")
-	gitShowCmd.Flags().StringVar(&gitShowNoteFlag, "note", "", "filter output to this note slug")
+	gitShowCmd.Flags().
+		StringVarP(&gitShowCommitFlag, "commit", "c", "", "commit hash to show (fzf if omitted)")
+	gitShowCmd.Flags().
+		StringVarP(&gitShowNoteFlag, "note", "n", "", "filter output to this note slug")
 }

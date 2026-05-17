@@ -18,46 +18,44 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package cmd
+package cli
 
 import (
 	"fmt"
-
-	"github.com/spf13/cobra"
-
-	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
+	"os"
+	"os/exec"
+	"strings"
 )
 
-var noteSearchQueryFlag string
+// Pick pipes items to fzf and returns the selected line trimmed of
+// whitespace. Returns an error if fzf is not installed, the user
+// cancels (Ctrl-C / Esc), or no items are provided.
+func Pick(
+	items []string,
+	header string,
+) (string, error) {
+	if len(items) == 0 {
+		return "", fmt.Errorf("no items to select from")
+	}
 
-// noteSearchCmd implements `jot note search --query <query>`.
-// Case-insensitive substring search across note titles and bodies.
-var noteSearchCmd = &cobra.Command{
-	Use:     "search",
-	Aliases: []string{"s"},
-	Short:   "Search across notes",
-	Args:    cobra.NoArgs,
-	RunE: func(c *cobra.Command, _ []string) error {
-		out := c.OutOrStdout()
-		query := noteSearchQueryFlag
+	fzf, err := exec.LookPath("fzf")
+	if err != nil {
+		return "", fmt.Errorf("fzf not found in PATH: %w", err)
+	}
 
-		notes, err := jot.SearchNotes(NotesDir(), query)
-		if err != nil {
-			return fmt.Errorf("search notes: %w", err)
-		}
+	args := []string{"--ansi", "--reverse"}
+	if header != "" {
+		args = append(args, "--header", header)
+	}
 
-		for _, n := range notes {
-			title := cli.Accent(out, n.Title)
-			slug := cli.Mute(out, n.Slug)
-			cli.Printf(out, "%s  %s\n", title, slug)
-		}
+	cmd := exec.Command(fzf, args...)
+	cmd.Stdin = strings.NewReader(strings.Join(items, "\n"))
+	cmd.Stderr = os.Stderr
 
-		return nil
-	},
-}
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("fzf cancelled")
+	}
 
-func init() {
-	noteSearchCmd.Flags().StringVarP(&noteSearchQueryFlag, "query", "q", "", "search query")
-	_ = noteSearchCmd.MarkFlagRequired("query")
+	return strings.TrimSpace(string(out)), nil
 }

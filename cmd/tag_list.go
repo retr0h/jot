@@ -31,11 +31,11 @@ import (
 )
 
 // tagListCmd implements `jot tag list`.
-// Calls jot.AllTags, sorts alphabetically, and prints each tag in accent.
 var tagListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all tags",
-	Args:  cobra.NoArgs,
+	Use:     "list",
+	Aliases: []string{"l", "ls"},
+	Short:   "List all tags",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 
@@ -44,9 +44,16 @@ var tagListCmd = &cobra.Command{
 			return fmt.Errorf("list tags: %w", err)
 		}
 
+		if len(tags) == 0 {
+			return nil
+		}
+
 		sort.Strings(tags)
+
+		cli.Printf(out, "%s\n", cli.Mute(out, "TAG"))
+
 		for _, tag := range tags {
-			cli.Print(out, cli.Accent(out, tag))
+			cli.Print(out, cli.Info(out, tag))
 		}
 
 		return nil

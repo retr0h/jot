@@ -28,12 +28,19 @@ import (
 
 var dayNames = map[string]time.Weekday{
 	"sunday":    time.Sunday,
+	"sun":       time.Sunday,
 	"monday":    time.Monday,
+	"mon":       time.Monday,
 	"tuesday":   time.Tuesday,
+	"tue":       time.Tuesday,
 	"wednesday": time.Wednesday,
+	"wed":       time.Wednesday,
 	"thursday":  time.Thursday,
+	"thu":       time.Thursday,
 	"friday":    time.Friday,
+	"fri":       time.Friday,
 	"saturday":  time.Saturday,
+	"sat":       time.Saturday,
 }
 
 // ParseDate parses a natural language or explicit date string relative to the
@@ -65,6 +72,15 @@ func ParseDate(input string, relativeTo time.Time) (time.Time, error) {
 	// Named weekday.
 	if wd, ok := dayNames[normalized]; ok {
 		return nextWeekday(relativeTo, wd), nil
+	}
+
+	// "next <day>" — the occurrence after the immediate next one.
+	if strings.HasPrefix(normalized, "next ") {
+		day := strings.TrimPrefix(normalized, "next ")
+		if wd, ok := dayNames[day]; ok {
+			first := nextWeekday(relativeTo, wd)
+			return first.AddDate(0, 0, 7), nil
+		}
 	}
 
 	return time.Time{}, fmt.Errorf("jot: unrecognized date input %q", input)

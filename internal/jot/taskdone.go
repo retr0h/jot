@@ -24,12 +24,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 )
 
-// MarkTaskDone finds the first @task line in notePath whose description
-// contains desc (case-insensitive substring), appends done:YYYY-MM-DD, and
-// writes the file back. Returns an error when no matching task is found.
+// MarkTaskDone finds the first checkbox task in notePath whose description
+// contains desc (case-insensitive substring), flips [ ] → [x], and writes
+// the file back. The git commit timestamp records when it was completed.
 func MarkTaskDone(
 	notePath string,
 	desc string,
@@ -39,7 +38,6 @@ func MarkTaskDone(
 		return fmt.Errorf("read note %q: %w", notePath, err)
 	}
 
-	today := time.Now().Format("2006-01-02")
 	lower := strings.ToLower(desc)
 	lines := strings.Split(string(content), "\n")
 	found := false
@@ -47,10 +45,14 @@ func MarkTaskDone(
 	for i, line := range lines {
 		tasks := ParseTasks(line)
 		for _, t := range tasks {
+			if t.Done {
+				continue
+			}
 			if !strings.Contains(strings.ToLower(t.Description), lower) {
 				continue
 			}
-			lines[i] = rewriteTaskDone(line, t, today)
+			t.Done = true
+			lines[i] = FormatTask(t)
 			found = true
 			break
 		}
@@ -60,34 +62,8 @@ func MarkTaskDone(
 	}
 
 	if !found {
-		return fmt.Errorf("no @task matching %q found in %s", desc, notePath)
+		return fmt.Errorf("no open task matching %q found in %s", desc, notePath)
 	}
 
 	return os.WriteFile(notePath, []byte(strings.Join(lines, "\n")), 0o600)
-}
-
-// rewriteTaskDone rewrites a single @task line to include done:YYYY-MM-DD.
-// Resolved form is updated in-place; bare form is promoted to resolved.
-func rewriteTaskDone(
-	line string,
-	t RawTask,
-	today string,
-) string {
-	t.DoneDate = today
-	if t.Resolved {
-		// Rebuild the resolved @task(...) with done appended.
-		parts := []string{t.Description}
-		if t.DueDate != "" {
-			parts = append(parts, "due:"+t.DueDate)
-		}
-		if t.DoneDate != "" {
-			parts = append(parts, "done:"+t.DoneDate)
-		}
-		newMarker := "@task(" + strings.Join(parts, " | ") + ")"
-		// Preserve any inline #tags that were after the closing paren.
-		return resolvedTaskRe.ReplaceAllLiteralString(line, newMarker)
-	}
-	// Bare @task — convert to resolved form with done.
-	resolved := ResolveLine(t, t.DueDate, t.Labels)
-	return bareTaskRe.ReplaceAllLiteralString(line, resolved)
 }

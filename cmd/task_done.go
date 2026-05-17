@@ -22,10 +22,7 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -44,41 +41,34 @@ var (
 // case-insensitive), appends done:YYYY-MM-DD, and writes the file back.
 // Auto-commits after.
 var taskDoneCmd = &cobra.Command{
-	Use:   "done",
-	Short: "Mark a task as complete",
-	Args:  cobra.NoArgs,
+	Use:     "done",
+	Aliases: []string{"d"},
+	Short:   "Mark a task as complete",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
+		notesDir := NotesDir()
+
 		slug := taskDoneSlugFlag
 		desc := taskDoneDescFlag
-		notesDir := NotesDir()
-		notePath := filepath.Join(notesDir, slug+".md")
 
-		data, err := os.ReadFile(notePath)
-		if err != nil {
-			return fmt.Errorf("read note %q: %w", slug, err)
-		}
-		content := string(data)
-
-		today := time.Now().Format("2006-01-02")
-		lower := strings.ToLower(desc)
-		tasks := jot.ParseTasks(content)
-		resolutions := make(map[int]string)
-
-		for _, t := range tasks {
-			if strings.Contains(strings.ToLower(t.Description), lower) && t.DoneDate == "" {
-				t.DoneDate = today
-				resolutions[t.Line] = jot.ResolveLine(t, t.DueDate, t.Labels)
+		if slug == "" || desc == "" {
+			pickedSlug, pickedDesc, err := pickTask(notesDir)
+			if err != nil {
+				return err
+			}
+			if slug == "" {
+				slug = pickedSlug
+			}
+			if desc == "" {
+				desc = pickedDesc
 			}
 		}
 
-		if len(resolutions) == 0 {
-			return fmt.Errorf("no open task matching %q found in %s", desc, slug)
-		}
+		notePath := filepath.Join(notesDir, slug+".md")
 
-		updated := jot.ApplyResolutions(content, resolutions)
-		if err := os.WriteFile(notePath, []byte(updated), 0o600); err != nil {
-			return fmt.Errorf("write note %q: %w", slug, err)
+		if err := jot.MarkTaskDone(notePath, desc); err != nil {
+			return err
 		}
 
 		// Auto-commit.
@@ -99,9 +89,8 @@ var taskDoneCmd = &cobra.Command{
 }
 
 func init() {
-	taskDoneCmd.Flags().StringVar(&taskDoneSlugFlag, "slug", "", "note slug containing the task")
-	_ = taskDoneCmd.MarkFlagRequired("slug")
 	taskDoneCmd.Flags().
-		StringVar(&taskDoneDescFlag, "desc", "", "task description (substring match)")
-	_ = taskDoneCmd.MarkFlagRequired("desc")
+		StringVarP(&taskDoneSlugFlag, "slug", "s", "", "note slug containing the task (fzf if omitted)")
+	taskDoneCmd.Flags().
+		StringVarP(&taskDoneDescFlag, "desc", "D", "", "task description (fzf if omitted)")
 }

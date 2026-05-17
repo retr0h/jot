@@ -35,9 +35,10 @@ var gitLogSlugFlag string
 // Opens the notes directory as a git repo and prints the commit log.
 // If slug is provided, only commits that touched that file are shown.
 var gitLogCmd = &cobra.Command{
-	Use:   "log",
-	Short: "Show git log for the notes directory",
-	Args:  cobra.NoArgs,
+	Use:     "log",
+	Aliases: []string{"l"},
+	Short:   "Show git log for the notes directory",
+	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
@@ -68,5 +69,6 @@ var gitLogCmd = &cobra.Command{
 }
 
 func init() {
-	gitLogCmd.Flags().StringVar(&gitLogSlugFlag, "slug", "", "filter log to a specific note slug")
+	gitLogCmd.Flags().
+		StringVarP(&gitLogSlugFlag, "slug", "s", "", "filter log to a specific note slug")
 }
