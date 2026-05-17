@@ -6,8 +6,9 @@ Architecture intent + standards for Claude Code working in this repo.
 
 **jot** — terminal-first markdown notes + todos with linked tasks. Notes
 are plain `.md` files with YAML frontmatter, edited in nvim (hardcoded —
-obsidian.nvim provides wiki-link navigation). `@task` markers with `#tags`
-create linked todos with due dates. `[[slug]]` wiki links connect notes.
+obsidian.nvim provides wiki-link navigation). Checkbox tasks
+(`- [ ] desc | due:date #tag`) create linked todos. `[[slug]]` wiki links
+connect notes.
 Git backs everything — every save is a commit. Sensitive notes encrypt at
 rest via kvlt (age + SSH keys). An MCP server exposes the full surface to
 LLM agents. No database: files are the source of truth.
@@ -21,7 +22,7 @@ jot (binary)
 │   ├── cli/        theme, banner, output helpers, TTY prompts
 │   ├── config/     Config struct, viper mapstructure bindings
 │   ├── gitops/     git integration — commit, log, diff, show
-│   ├── jot/        core domain — parser (@task), editor, slug, date, kvlt
+│   ├── jot/        core domain — parser (tasks), editor, slug, date, kvlt
 │   ├── mcp/        MCP server (stdio, go-sdk pattern)
 │   └── version/    build-time identity
 ```
@@ -30,8 +31,8 @@ jot (binary)
 
 - **Files are source of truth.** No database — `.md` files are canonical.
 - **Git backs everything.** Every write goes through `internal/gitops`.
-- **@task round-trips.** Parser reads both `@task desc #tag` and
-  `@task(desc | due:X) #tag` forms.
+- **Task round-trips.** Parser reads `- [ ] desc | due:X #tag` checkbox
+  format with pipe-delimited metadata fields.
 - **[[slug]] links.** Wiki-style links connect notes by slug.
 - **Interfaces where consumed.** Define interfaces in the consuming package,
   not the providing package.
