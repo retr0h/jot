@@ -31,14 +31,6 @@ import (
 )
 
 // noteCmd is the parent for `jot note` — all note management subcommands.
-//
-// Subcommands:
-//
-//	new      create a new note and open in $EDITOR
-//	edit     open an existing note by slug
-//	list     list notes, optionally filtered by tag
-//	search   full-text search across notes
-//	mv       rename a note and rewrite wikilinks
 var noteCmd = &cobra.Command{
 	Use:     "note",
 	Aliases: []string{"n"},
