@@ -55,7 +55,7 @@ var noteEncryptCmd = &cobra.Command{
 
 		if repo, err := gitops.OpenRepo(notesDir); err == nil {
 			msg := gitops.FormatCommitMessage(
-				fmt.Sprintf("note: encrypt %s", slug),
+				fmt.Sprintf("note(secure): encrypt %s", slug),
 				"",
 			)
 			_ = repo.Commit(msg)

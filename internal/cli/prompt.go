@@ -27,6 +27,11 @@ import (
 	"golang.org/x/term"
 )
 
+// IsPiped reports whether stdin is not a terminal (i.e. data is being piped in).
+func IsPiped() bool {
+	return !term.IsTerminal(int(os.Stdin.Fd()))
+}
+
 // PassphrasePrompt reads a passphrase from /dev/tty for the given key path.
 func PassphrasePrompt(keyPath string) ([]byte, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
