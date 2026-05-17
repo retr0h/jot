@@ -27,36 +27,16 @@ import (
 	"path/filepath"
 )
 
-// EditorName resolves the editor to use in priority order:
-//
-//  1. configEditor (from jot's config file / --editor flag)
-//  2. $VISUAL environment variable
-//  3. $EDITOR environment variable
-//  4. nvim (hard default)
-func EditorName(configEditor string) string {
-	if configEditor != "" {
-		return configEditor
-	}
-	if e := os.Getenv("VISUAL"); e != "" {
-		return e
-	}
-	if e := os.Getenv("EDITOR"); e != "" {
-		return e
-	}
-	return "nvim"
-}
-
-// Edit opens path in the resolved editor. JOT_NOTES_DIR is set in the
-// child environment so editor plugins can locate the notes directory.
-func Edit(path string, configEditor string) error {
-	editor := EditorName(configEditor)
-	cmd := exec.Command(editor, path)
+// Edit opens path in nvim. JOT_NOTES_DIR is set in the child environment
+// so editor plugins (obsidian.nvim) can locate the notes directory.
+func Edit(path string) error {
+	cmd := exec.Command("nvim", path)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = append(os.Environ(), "JOT_NOTES_DIR="+filepath.Dir(path))
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("editor %s: %w", editor, err)
+		return fmt.Errorf("nvim: %w", err)
 	}
 	return nil
 }

@@ -25,7 +25,6 @@ package config
 // flags, environment variables, and the jot.yaml config file.
 type Config struct {
 	Config   string `mapstructure:"config"`
-	Editor   string `mapstructure:"editor"`
 	NotesDir string `mapstructure:"notes_dir"`
 	Debug    bool   `mapstructure:"debug"`
 }

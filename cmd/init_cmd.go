@@ -37,7 +37,6 @@ import (
 const defaultConfig = `# jot configuration — uncomment and adjust as needed.
 # All values can also be set via JOT_<KEY> environment variables.
 
-# editor: ""          # override $EDITOR
 # notes_dir: ""       # override notes directory
 `
 

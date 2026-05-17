@@ -77,7 +77,7 @@ var noteNewCmd = &cobra.Command{
 			return fmt.Errorf("write note file %q: %w", notePath, err)
 		}
 
-		if err := jot.Edit(notePath, EditorPref()); err != nil {
+		if err := jot.Edit(notePath); err != nil {
 			return fmt.Errorf("edit note: %w", err)
 		}
 
