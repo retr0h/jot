@@ -40,9 +40,9 @@ created: 2026-05-14
 
 See [[other-note]] for details.
 
-@task(Review PR | due:2026-05-20) #code-review
-@task(Write docs | due:2026-05-22 | done:2026-05-21) #docs
-@task Deploy staging #ops
+- [ ] Review PR | due:2026-05-20 #code-review
+- [x] Write docs | due:2026-05-22 #docs
+- [ ] Deploy staging #ops
 `
 
 // writeNote is a helper that writes content to slug.md inside dir.
@@ -446,9 +446,9 @@ func TestAllTasks(t *testing.T) {
 	t.Parallel()
 
 	// testNote has 3 tasks:
-	//   @task(Review PR | due:2026-05-20) #code-review   — open
-	//   @task(Write docs | due:2026-05-22 | done:2026-05-21) #docs — done
-	//   @task Deploy staging #ops                         — open
+	//   - [ ] Review PR | due:2026-05-20 #code-review   — open
+	//   - [x] Write docs | due:2026-05-22 #docs          — done
+	//   - [ ] Deploy staging #ops                         — open
 
 	setupDir := func(t *testing.T) string {
 		t.Helper()
@@ -572,7 +572,7 @@ func TestTasksDue(t *testing.T) {
 			wantCount: 0,
 			setup: func(t *testing.T) string {
 				dir := t.TempDir()
-				writeNote(t, dir, "no-due", "# No Due\n\n@task simple task\n")
+				writeNote(t, dir, "no-due", "# No Due\n\n- [ ] simple task\n")
 				return dir
 			},
 		},
@@ -627,7 +627,7 @@ created: 2026-05-14
 ---
 # Dup
 
-Some text #work and @task do thing #work
+Some text #work and - [ ] do thing #work
 `)
 				return dir
 			},

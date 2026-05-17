@@ -26,74 +26,59 @@ import (
 )
 
 var (
-	bareTaskRe     = regexp.MustCompile(`@task\s+(.+)$`)
-	resolvedTaskRe = regexp.MustCompile(`@task\(([^)]+)\)`)
-	// hashTagInDesc matches a leading #tag token in the bare description so we
-	// can strip inline tags out of the description text.
+	// Matches: - [ ] or - [x] at the start (with optional leading whitespace)
+	checkboxRe = regexp.MustCompile(`^(\s*-\s+\[)([ xX])(\]\s+)(.+)$`)
+	// Matches inline #tags
 	hashTagStripRe = regexp.MustCompile(`\s+#[A-Za-z][A-Za-z0-9_/-]*`)
 )
 
-// RawTask represents a single @task marker extracted from a note.
+// RawTask represents a single task extracted from a markdown checkbox line.
 type RawTask struct {
 	Description string
-	DueDate     string   // "2026-05-16" or ""
-	DoneDate    string   // "2026-05-14" or ""
-	Labels      []string // populated from inline #tags on the same line
-	Line        int      // 1-indexed line number in the note
-	Resolved    bool     // true if parsed from @task(...) form
+	DueDate     string
+	Labels      []string
+	Line        int
+	Done        bool
 }
 
-// ParseTasks extracts all @task markers from markdown content.
-// Returns them in document order. Handles both bare and resolved forms.
+// ParseTasks extracts all task checkboxes from markdown content.
+// A task is any line matching `- [ ] ...` or `- [x] ...` that contains
+// a pipe-delimited metadata field (due:, done:) or inline #tags.
+// Plain checkboxes without metadata are also captured.
 //
-// Resolved form: @task(desc | due:X | done:Z) #tag1 #tag2
-//   - Tags are inline #tags on the line OUTSIDE the parens.
-//
-// Bare form: @task desc #tag1 #tag2
-//   - #tags are stripped from the description and stored in Labels.
+// Format: - [ ] description | due:friday #tag1 #tag2
+//   - [x] description | due:2026-05-16 | done:2026-05-16 #tag1
 func ParseTasks(content string) []RawTask {
 	lines := strings.Split(content, "\n")
 	tasks := make([]RawTask, 0, len(lines))
 
 	for i, line := range lines {
-		lineNum := i + 1
-
-		// Try resolved form first: @task(...)
-		if m := resolvedTaskRe.FindStringSubmatch(line); m != nil {
-			task := parseResolvedInner(m[1])
-			task.Line = lineNum
-			task.Resolved = true
-			// Inline #tags on the line (outside the parens) augment Labels.
-			lineTags := ParseLineTags(line)
-			task.Labels = append(task.Labels, lineTags...)
-			tasks = append(tasks, task)
+		m := checkboxRe.FindStringSubmatch(line)
+		if m == nil {
 			continue
 		}
 
-		// Try bare form: @task <description> [#tags]
-		if m := bareTaskRe.FindStringSubmatch(line); m != nil {
-			raw := strings.TrimSpace(m[1])
-			tags := ParseLineTags(raw)
-			// Strip #tag tokens from the description.
-			desc := strings.TrimSpace(hashTagStripRe.ReplaceAllString(raw, ""))
-			tasks = append(tasks, RawTask{
-				Description: desc,
-				Labels:      tags,
-				Line:        lineNum,
-				Resolved:    false,
-			})
-		}
+		checked := m[2] == "x" || m[2] == "X"
+		rest := m[4]
+
+		task := parseTaskContent(rest)
+		task.Line = i + 1
+		task.Done = checked
+		tasks = append(tasks, task)
 	}
 
 	return tasks
 }
 
-// parseResolvedInner parses the inner content of @task(...), splitting on "|".
-// Only due: and done: fields are recognised; tag: is no longer supported.
-func parseResolvedInner(inner string) RawTask {
-	fields := strings.Split(inner, "|")
-	task := RawTask{}
+// parseTaskContent parses the content after `- [ ] ` or `- [x] `.
+// Splits on `|` for metadata fields, extracts inline #tags.
+func parseTaskContent(content string) RawTask {
+	tags := ParseLineTags(content)
+	stripped := strings.TrimSpace(hashTagStripRe.ReplaceAllString(content, ""))
 
+	task := RawTask{Labels: tags}
+
+	fields := strings.Split(stripped, "|")
 	for idx, field := range fields {
 		field = strings.TrimSpace(field)
 		switch {
@@ -101,36 +86,32 @@ func parseResolvedInner(inner string) RawTask {
 			task.Description = field
 		case strings.HasPrefix(field, "due:"):
 			task.DueDate = strings.TrimPrefix(field, "due:")
-		case strings.HasPrefix(field, "done:"):
-			task.DoneDate = strings.TrimPrefix(field, "done:")
 		}
 	}
 
 	return task
 }
 
-// ResolveLine produces the resolved form:
+// FormatTask produces a complete checkbox line from a RawTask:
 //
-//	@task(desc | due:X | done:Z) #tag1 #tag2
-//
-// Tags are placed OUTSIDE the parens as inline #tags. Only non-empty fields
-// are included. DoneDate from the RawTask is preserved.
-func ResolveLine(task RawTask, due string, tags []string) string {
+//   - [ ] description | due:friday #tag1 #tag2
+//   - [x] description | due:friday #tag1 #tag2
+func FormatTask(task RawTask) string {
+	check := " "
+	if task.Done {
+		check = "x"
+	}
+
 	parts := []string{task.Description}
-
-	if due != "" {
-		parts = append(parts, "due:"+due)
+	if task.DueDate != "" {
+		parts = append(parts, "due:"+task.DueDate)
 	}
 
-	if task.DoneDate != "" {
-		parts = append(parts, "done:"+task.DoneDate)
-	}
+	result := "- [" + check + "] " + strings.Join(parts, " | ")
 
-	result := "@task(" + strings.Join(parts, " | ") + ")"
-
-	if len(tags) > 0 {
-		tagStr := make([]string, len(tags))
-		for i, t := range tags {
+	if len(task.Labels) > 0 {
+		tagStr := make([]string, len(task.Labels))
+		for i, t := range task.Labels {
 			tagStr[i] = "#" + t
 		}
 		result += " " + strings.Join(tagStr, " ")
@@ -140,7 +121,6 @@ func ResolveLine(task RawTask, due string, tags []string) string {
 }
 
 // DiffTasks compares old and new content, returns added/removed/unchanged tasks.
-// Matching is by description (string equality).
 func DiffTasks(oldContent, newContent string) (added, removed, unchanged []RawTask) {
 	oldTasks := ParseTasks(oldContent)
 	newTasks := ParseTasks(newContent)
@@ -173,7 +153,7 @@ func DiffTasks(oldContent, newContent string) (added, removed, unchanged []RawTa
 }
 
 // ApplyResolutions takes note content and a map of lineNumber→resolvedString,
-// replaces the @task marker on each line with the resolved string.
+// replaces the task line with the resolved string.
 func ApplyResolutions(content string, resolutions map[int]string) string {
 	lines := strings.Split(content, "\n")
 
@@ -182,14 +162,7 @@ func ApplyResolutions(content string, resolutions map[int]string) string {
 		if idx < 0 || idx >= len(lines) {
 			continue
 		}
-		line := lines[idx]
-
-		// Replace the resolved form first if present, then bare form.
-		if resolvedTaskRe.MatchString(line) {
-			lines[idx] = resolvedTaskRe.ReplaceAllLiteralString(line, resolved)
-		} else if bareTaskRe.MatchString(line) {
-			lines[idx] = bareTaskRe.ReplaceAllLiteralString(line, resolved)
-		}
+		lines[idx] = resolved
 	}
 
 	return strings.Join(lines, "\n")

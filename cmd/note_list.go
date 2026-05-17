@@ -32,7 +32,6 @@ import (
 var noteListTagFlag string
 
 // noteListCmd implements `jot note list [--tag X]`.
-// Shows: date, title (accent), slug (muted), [secure] indicator.
 var noteListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"l", "ls"},
@@ -46,15 +45,37 @@ var noteListCmd = &cobra.Command{
 			return fmt.Errorf("list notes: %w", err)
 		}
 
+		if len(notes) == 0 {
+			return nil
+		}
+
+		dateW, titleW, slugW := len("CREATED"), len("TITLE"), len("SLUG")
 		for _, n := range notes {
-			date := cli.Mute(out, n.Created)
-			title := cli.Accent(out, n.Title)
+			if len(n.Created) > dateW {
+				dateW = len(n.Created)
+			}
+			if len(n.Title) > titleW {
+				titleW = len(n.Title)
+			}
+			if len(n.Slug) > slugW {
+				slugW = len(n.Slug)
+			}
+		}
+
+		hdr := cli.Pad("CREATED", dateW+2) + cli.Pad("TITLE", titleW+2) + "SLUG"
+		cli.Printf(out, "%s\n", cli.Mute(out, hdr))
+
+		for _, n := range notes {
+			date := cli.Info(out, cli.Pad(n.Created, dateW+2))
+			title := cli.Accent(out, cli.Pad(n.Title, titleW+2))
 			slug := cli.Mute(out, n.Slug)
+
 			secure := ""
 			if n.Secure {
-				secure = "  " + cli.Info(out, "[secure]")
+				secure = "  " + cli.Err(out, "[secure]")
 			}
-			cli.Printf(out, "%s  %s  %s%s\n", date, title, slug, secure)
+
+			cli.Printf(out, "%s%s%s%s\n", date, title, slug, secure)
 		}
 
 		return nil

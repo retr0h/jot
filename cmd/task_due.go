@@ -33,7 +33,6 @@ import (
 var taskDuePeriodFlag string
 
 // taskDueCmd implements `jot task due [--period today|week|month]`.
-// Shows: date (overdue=pink, else muted), description (accent), note slug (muted).
 var taskDueCmd = &cobra.Command{
 	Use:     "due",
 	Aliases: []string{"du"},
@@ -56,7 +55,7 @@ var taskDueCmd = &cobra.Command{
 		case "month":
 			from = today
 			to = today.AddDate(0, 1, 0)
-		default: // "week" and unrecognized values
+		default:
 			from = today
 			to = today.AddDate(0, 0, 7)
 		}
@@ -66,21 +65,40 @@ var taskDueCmd = &cobra.Command{
 			return fmt.Errorf("tasks due: %w", err)
 		}
 
+		if len(tasks) == 0 {
+			return nil
+		}
+
+		descW, dueW, noteW := len("DESCRIPTION"), len("DUE"), len("NOTE")
 		for _, t := range tasks {
-			var dateStr string
-			if t.DueDate != "" {
-				if t.DueDate < todayStr {
-					dateStr = cli.Overdue(out, t.DueDate)
-				} else {
-					dateStr = cli.Mute(out, t.DueDate)
-				}
+			if len(t.Description) > descW {
+				descW = len(t.Description)
+			}
+			if len(t.DueDate) > dueW {
+				dueW = len(t.DueDate)
+			}
+			if len(t.NoteSlug) > noteW {
+				noteW = len(t.NoteSlug)
+			}
+		}
+
+		cli.Printf(out, "%s\n", cli.Mute(
+			out,
+			cli.Pad("DUE", dueW+2)+cli.Pad("DESCRIPTION", descW+2)+"NOTE",
+		))
+
+		for _, t := range tasks {
+			dueCol := cli.Pad(t.DueDate, dueW+2)
+			if t.DueDate < todayStr {
+				dueCol = cli.Overdue(out, dueCol)
 			} else {
-				dateStr = cli.Mute(out, "no due date")
+				dueCol = cli.Info(out, dueCol)
 			}
 
-			desc := cli.Accent(out, t.Description)
-			slug := cli.Mute(out, t.NoteSlug)
-			cli.Printf(out, "%s  %s  %s\n", dateStr, desc, slug)
+			desc := cli.Pad(t.Description, descW+2)
+			note := cli.Mute(out, t.NoteSlug)
+
+			cli.Printf(out, "%s%s%s\n", dueCol, desc, note)
 		}
 
 		return nil

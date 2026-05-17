@@ -31,7 +31,11 @@ function M.setup(opts)
           ['x'] = { char = 'x', order = 2 },
         },
       },
-      completion = { nvim_cmp = true, min_chars = 2 },
+      completion = {
+        nvim_cmp = true,
+        min_chars = 2,
+        prepend_note_id = false,
+      },
     })
   end
 
@@ -127,43 +131,54 @@ function M.setup(opts)
     vim.keymap.set('n', k.help, show_help, { desc = 'jot: show keybindings' })
   end
 
-  -- LuaSnip @task snippet + jump keymaps
+  -- LuaSnip task snippet + jump keymaps
   local ls_ok, ls = pcall(require, 'luasnip')
   if ls_ok then
     local s, t, i = ls.snippet, ls.text_node, ls.insert_node
     ls.add_snippets('markdown', {
       s({ trig = '@task', wordTrig = false }, {
-        t('@task('),
+        t('- [ ] '),
         i(1, 'description'),
         t(' | due:'),
         i(2, 'today'),
-        t(') '),
-        t('#'),
+        t(' #'),
         i(3, 'tag'),
       }),
     }, { key = 'jot' })
 
     local cmp_ok, cmp = pcall(require, 'cmp')
     if cmp_ok then
-      local jot_dates = {
-        name = 'jot_dates',
-        complete = function(_, _, callback)
-          local items = {}
-          local now = os.time()
-          for d = 0, 6 do
-            local date = os.date('%Y-%m-%d', now + d * 86400)
-            table.insert(items, { label = date, kind = 12 })
-          end
-          for _, w in ipairs({ 'today', 'tomorrow', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'next week' }) do
-            table.insert(items, { label = w, kind = 12 })
-          end
-          callback({ items = items })
-        end,
-      }
-      cmp.register_source('jot_dates', jot_dates)
+      local dates_src = {}
+      dates_src.new = function()
+        return setmetatable({}, { __index = dates_src })
+      end
+      dates_src.get_debug_name = function() return 'jot_dates' end
+      dates_src.is_available = function() return true end
+      dates_src.get_keyword_length = function() return 1 end
+      dates_src.complete = function(_, _, callback)
+        local items = {}
+        local now = os.time()
+        for d = 0, 6 do
+          table.insert(items, { label = os.date('%Y-%m-%d', now + d * 86400) })
+        end
+        for _, w in ipairs({
+          'today', 'tomorrow',
+          'monday', 'mon', 'tuesday', 'tue', 'wednesday', 'wed',
+          'thursday', 'thu', 'friday', 'fri', 'saturday', 'sat', 'sunday', 'sun',
+          'next week',
+        }) do
+          table.insert(items, { label = w })
+        end
+        callback({ items = items, isIncomplete = false })
+      end
+
+      cmp.register_source('jot_dates', dates_src.new())
 
       cmp.setup.filetype('markdown', {
         sources = cmp.config.sources({
+          { name = 'obsidian' },
+          { name = 'obsidian_new' },
+          { name = 'obsidian_tags' },
           { name = 'luasnip', keyword_pattern = [[\%(@\)\?\k\+]] },
           { name = 'jot_dates' },
           { name = 'buffer' },

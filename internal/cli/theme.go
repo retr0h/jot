@@ -52,6 +52,10 @@ type Theme struct {
 	OK        lipgloss.Style
 	Err       lipgloss.Style
 	Info      lipgloss.Style
+	Warn      lipgloss.Style
+	Soon      lipgloss.Style
+	RowToday  lipgloss.Style
+	RowSoon   lipgloss.Style
 	BannerTop lipgloss.Style
 	BannerBot lipgloss.Style
 }
@@ -61,6 +65,10 @@ type Theme struct {
 // when the terminal supports it; xterm-256 indexes are also accepted.
 func fg(c string) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(c))
+}
+
+func bg(c string) lipgloss.Style {
+	return lipgloss.NewStyle().Background(lipgloss.Color(c))
 }
 
 // faint uses lipgloss's dim attribute rather than a specific color
@@ -81,6 +89,10 @@ var ThemeMaxheadroom = Theme{
 	OK:        fg("#50fa7b"), // mhGreen
 	Err:       fg("#ff6ec7"), // mhPink (the in-app alert color)
 	Info:      fg("#00d4ff"), // mhCyan
+	Warn:      fg("#00d4ff"), // mhCyan — due today
+	Soon:      fg("#00d4ff"), // mhCyan — due this week
+	RowToday:  bg("#33162a"), // mhPink #ff6ec7 darkened for bg
+	RowSoon:   bg("#1f0f1a"), // mhPink #ff6ec7 barely-there bg
 	BannerTop: faint,
 	BannerBot: fg("#c678dd"), // mhMagenta
 }
@@ -149,6 +161,24 @@ func Failure(w io.Writer, msg string) string {
 	return mark + " " + msg
 }
 
+// Warn returns s in the warning/orange color, used for due-today dates.
+func Warn(w io.Writer, s string) string { return render(w, active.Warn, s) }
+
+// Soon returns s in the yellow color, used for due-this-week dates.
+func Soon(w io.Writer, s string) string { return render(w, active.Soon, s) }
+
+// RenderWithBg renders s with the given foreground style plus a background color overlay.
+func RenderWithBg(w io.Writer, fgStyle lipgloss.Style, bgStyle lipgloss.Style, s string) string {
+	combined := fgStyle.Background(bgStyle.GetBackground())
+	return combined.Renderer(rendererFor(w)).Render(s)
+}
+
+// RowBgToday returns the RowToday background style.
+func RowBgToday() lipgloss.Style { return active.RowToday }
+
+// RowBgSoon returns the RowSoon background style.
+func RowBgSoon() lipgloss.Style { return active.RowSoon }
+
 // Overdue returns s in the error/pink color, used for overdue task dates.
 func Overdue(w io.Writer, s string) string { return render(w, active.Err, s) }
 
@@ -167,4 +197,12 @@ func Print(w io.Writer, s string) {
 // Printf writes a formatted string to w.
 func Printf(w io.Writer, format string, a ...any) {
 	_, _ = fmt.Fprintf(w, format, a...)
+}
+
+// Pad right-pads s with spaces to width w.
+func Pad(s string, w int) string {
+	if len(s) >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-len(s))
 }

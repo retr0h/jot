@@ -31,23 +31,29 @@ func TestParseTasks(t *testing.T) {
 		name      string
 		content   string
 		wantCount int
-		wantDesc  string // first task description, if any
+		wantDesc  string
 	}{
 		{
-			name:      "bare @task",
-			content:   "- @task review meshx PR",
+			name:      "open checkbox task",
+			content:   "- [ ] review meshx PR",
 			wantCount: 1,
 			wantDesc:  "review meshx PR",
 		},
 		{
-			name:      "resolved @task with inline tags",
-			content:   "- @task(review meshx PR | due:2026-05-16) #meshx #pr",
+			name:      "done checkbox task",
+			content:   "- [x] review meshx PR",
 			wantCount: 1,
 			wantDesc:  "review meshx PR",
 		},
 		{
-			name:      "multiple bare tasks",
-			content:   "- @task first\n- @task second",
+			name:      "task with due date and tags",
+			content:   "- [ ] review meshx PR | due:2026-05-16 #meshx #pr",
+			wantCount: 1,
+			wantDesc:  "review meshx PR",
+		},
+		{
+			name:      "multiple tasks",
+			content:   "- [ ] first\n- [ ] second",
 			wantCount: 2,
 			wantDesc:  "first",
 		},
@@ -58,13 +64,13 @@ func TestParseTasks(t *testing.T) {
 		},
 		{
 			name:      "task in middle of document",
-			content:   "# Title\n\ntext\n\n- @task fix bug\n\nDone.",
+			content:   "# Title\n\ntext\n\n- [ ] fix bug\n\nDone.",
 			wantCount: 1,
 			wantDesc:  "fix bug",
 		},
 		{
 			name:      "done task",
-			content:   "- @task(reviewed PR | done:2026-05-14)",
+			content:   "- [x] reviewed PR",
 			wantCount: 1,
 			wantDesc:  "reviewed PR",
 		},
@@ -95,11 +101,8 @@ func TestParseTasks(t *testing.T) {
 	}
 }
 
-// TestParseTaskResolved verifies that tags are read from inline #tags OUTSIDE
-// the @task(...) parens, not from a label: field inside them.
-func TestParseTaskResolved(t *testing.T) {
-	// New format: tags are outside the parens as #tags.
-	content := "- @task(review meshx PR | due:2026-05-16) #meshx #pr"
+func TestParseTaskWithDueAndTags(t *testing.T) {
+	content := "- [ ] review meshx PR | due:2026-05-16 #meshx #pr"
 	tasks := jot.ParseTasks(content)
 
 	if len(tasks) != 1 {
@@ -122,28 +125,26 @@ func TestParseTaskResolved(t *testing.T) {
 		}
 	}
 
-	if !task.Resolved {
-		t.Error("expected Resolved = true")
+	if task.Done {
+		t.Error("expected Done = false")
 	}
 }
 
 func TestParseTaskDone(t *testing.T) {
-	content := "- @task(reviewed PR | done:2026-05-14)"
+	content := "- [x] reviewed PR"
 	tasks := jot.ParseTasks(content)
 
 	if len(tasks) != 1 {
 		t.Fatalf("expected 1 task, got %d", len(tasks))
 	}
 
-	if tasks[0].DoneDate != "2026-05-14" {
-		t.Errorf("DoneDate = %q, want %q", tasks[0].DoneDate, "2026-05-14")
+	if !tasks[0].Done {
+		t.Error("expected Done = true")
 	}
 }
 
-// TestParseTaskBareTags verifies that inline #tags on a bare @task line are
-// stripped from the description and collected into Labels.
-func TestParseTaskBareTags(t *testing.T) {
-	content := "- @task review meshx PR #meshx #pr"
+func TestParseTaskTags(t *testing.T) {
+	content := "- [ ] review meshx PR #meshx #pr"
 	tasks := jot.ParseTasks(content)
 
 	if len(tasks) != 1 {
@@ -166,58 +167,61 @@ func TestParseTaskBareTags(t *testing.T) {
 	}
 }
 
-func TestResolveLine(t *testing.T) {
+func TestFormatTask(t *testing.T) {
 	tests := []struct {
-		name   string
-		task   jot.RawTask
-		due    string
-		labels []string
-		want   string
+		name string
+		task jot.RawTask
+		want string
 	}{
 		{
-			name:   "with due and labels",
-			task:   jot.RawTask{Description: "review PR"},
-			due:    "2026-05-16",
-			labels: []string{"meshx", "pr"},
-			want:   "@task(review PR | due:2026-05-16) #meshx #pr",
+			name: "with due and labels",
+			task: jot.RawTask{
+				Description: "review PR",
+				DueDate:     "2026-05-16",
+				Labels:      []string{"meshx", "pr"},
+			},
+			want: "- [ ] review PR | due:2026-05-16 #meshx #pr",
 		},
 		{
-			name:   "no due",
-			task:   jot.RawTask{Description: "review PR"},
-			due:    "",
-			labels: []string{"meshx"},
-			want:   "@task(review PR) #meshx",
+			name: "no due",
+			task: jot.RawTask{Description: "review PR", Labels: []string{"meshx"}},
+			want: "- [ ] review PR #meshx",
 		},
 		{
-			name:   "no labels",
-			task:   jot.RawTask{Description: "review PR"},
-			due:    "2026-05-16",
-			labels: nil,
-			want:   "@task(review PR | due:2026-05-16)",
+			name: "no labels",
+			task: jot.RawTask{Description: "review PR", DueDate: "2026-05-16"},
+			want: "- [ ] review PR | due:2026-05-16",
 		},
 		{
-			name:   "done preserved from task",
-			task:   jot.RawTask{Description: "review PR", DoneDate: "2026-05-14"},
-			due:    "",
-			labels: nil,
-			want:   "@task(review PR | done:2026-05-14)",
+			name: "done task",
+			task: jot.RawTask{Description: "review PR", Done: true},
+			want: "- [x] review PR",
+		},
+		{
+			name: "done with due",
+			task: jot.RawTask{
+				Description: "review PR",
+				DueDate:     "2026-05-16",
+				Done:        true,
+				Labels:      []string{"work"},
+			},
+			want: "- [x] review PR | due:2026-05-16 #work",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := jot.ResolveLine(tt.task, tt.due, tt.labels)
+			got := jot.FormatTask(tt.task)
 			if got != tt.want {
-				t.Errorf("ResolveLine() = %q, want %q", got, tt.want)
+				t.Errorf("FormatTask() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
 func TestDiffTasks(t *testing.T) {
-	// New format: tags outside parens.
-	oldContent := "- @task(review meshx PR | due:2026-05-16) #meshx #pr"
-	newContent := "- @task(review meshx PR | due:2026-05-16) #meshx #pr\n- @task fix bug"
+	oldContent := "- [ ] review meshx PR | due:2026-05-16 #meshx #pr"
+	newContent := "- [ ] review meshx PR | due:2026-05-16 #meshx #pr\n- [ ] fix bug"
 
 	added, removed, unchanged := jot.DiffTasks(oldContent, newContent)
 
@@ -238,18 +242,17 @@ func TestDiffTasks(t *testing.T) {
 }
 
 func TestApplyResolutions(t *testing.T) {
-	content := "# Notes\n\n- @task review meshx PR\n- @task fix bug\n\nDone."
+	content := "# Notes\n\n- [ ] review meshx PR\n- [ ] fix bug\n\nDone."
 
-	// New format: tags outside parens.
 	resolutions := map[int]string{
-		3: "@task(review meshx PR | due:2026-05-16) #meshx #pr",
-		4: "@task(fix bug | due:2026-05-17)",
+		3: "- [x] review meshx PR | due:2026-05-16 #meshx #pr",
+		4: "- [x] fix bug",
 	}
 
 	got := jot.ApplyResolutions(content, resolutions)
 
-	wantLine3 := "- @task(review meshx PR | due:2026-05-16) #meshx #pr"
-	wantLine4 := "- @task(fix bug | due:2026-05-17)"
+	wantLine3 := "- [x] review meshx PR | due:2026-05-16 #meshx #pr"
+	wantLine4 := "- [x] fix bug"
 
 	lines := splitLines(got)
 	if len(lines) < 4 {
@@ -264,7 +267,6 @@ func TestApplyResolutions(t *testing.T) {
 	}
 }
 
-// splitLines is a local helper so the test has no external dependency for simple splitting.
 func splitLines(s string) []string {
 	var lines []string
 	start := 0
