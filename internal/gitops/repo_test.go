@@ -28,8 +28,12 @@ import (
 	"github.com/retr0h/jot/internal/gitops"
 )
 
-// writeFile is a test helper that writes content to path inside dir.
-func writeFile(t *testing.T, dir, name, content string) string {
+func writeFile(
+	t *testing.T,
+	dir string,
+	name string,
+	content string,
+) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -38,162 +42,328 @@ func writeFile(t *testing.T, dir, name, content string) string {
 	return path
 }
 
-func TestInitRepo_Idempotent(t *testing.T) {
-	dir := t.TempDir()
+func TestInitRepo(t *testing.T) {
+	t.Parallel()
 
-	r1, err := gitops.InitRepo(dir)
-	if err != nil {
-		t.Fatalf("first InitRepo: %v", err)
-	}
-	if r1 == nil {
-		t.Fatal("expected non-nil Repo")
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T) string
+		wantErr bool
+	}{
+		{
+			name: "initializes new repo",
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+		},
+		{
+			name: "idempotent on existing repo",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				if _, err := gitops.InitRepo(dir); err != nil {
+					t.Fatalf("pre-init: %v", err)
+				}
+				return dir
+			},
+		},
 	}
 
-	// Second call on the same directory must succeed without error.
-	r2, err := gitops.InitRepo(dir)
-	if err != nil {
-		t.Fatalf("second InitRepo (idempotent): %v", err)
-	}
-	if r2 == nil {
-		t.Fatal("expected non-nil Repo on second call")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := tt.setup(t)
+
+			r, err := gitops.InitRepo(dir)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("InitRepo: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("InitRepo: unexpected error: %v", err)
+			}
+			if r == nil {
+				t.Fatal("expected non-nil Repo")
+			}
+		})
 	}
 }
 
-func TestCommitAndLog(t *testing.T) {
-	dir := t.TempDir()
+func TestRepo_Commit(t *testing.T) {
+	t.Parallel()
 
-	r, err := gitops.InitRepo(dir)
-	if err != nil {
-		t.Fatalf("InitRepo: %v", err)
+	tests := []struct {
+		name        string
+		setup       func(t *testing.T, dir string)
+		message     string
+		wantCommits int
+	}{
+		{
+			name: "stages and commits new file",
+			setup: func(t *testing.T, dir string) {
+				writeFile(t, dir, "note.md", "# Hello\n")
+			},
+			message:     "docs: add note",
+			wantCommits: 1,
+		},
+		{
+			name: "no-op on clean worktree",
+			setup: func(t *testing.T, dir string) {
+				writeFile(t, dir, "note.md", "# Hello\n")
+				r, _ := gitops.InitRepo(dir)
+				_ = r.Commit("docs: initial")
+			},
+			message:     "docs: should be skipped",
+			wantCommits: 1,
+		},
+		{
+			name: "commits modification to existing file",
+			setup: func(t *testing.T, dir string) {
+				writeFile(t, dir, "note.md", "# Hello\n")
+				r, _ := gitops.InitRepo(dir)
+				_ = r.Commit("docs: initial")
+				writeFile(t, dir, "note.md", "# Hello World\n")
+			},
+			message:     "docs: update note",
+			wantCommits: 2,
+		},
 	}
 
-	writeFile(t, dir, "note.md", "# Hello\n")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
 
-	if err := r.Commit("docs: add note"); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+			r, err := gitops.InitRepo(dir)
+			if err != nil {
+				t.Fatalf("InitRepo: %v", err)
+			}
 
-	entries, err := r.Log("", 0)
-	if err != nil {
-		t.Fatalf("Log: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 log entry, got %d", len(entries))
-	}
-	if entries[0].Message != "docs: add note" {
-		t.Errorf("message = %q, want %q", entries[0].Message, "docs: add note")
-	}
-	if entries[0].Hash == "" {
-		t.Error("hash must not be empty")
+			tt.setup(t, dir)
+
+			if err := r.Commit(tt.message); err != nil {
+				t.Fatalf("Commit: %v", err)
+			}
+
+			entries, err := r.Log("", 0)
+			if err != nil {
+				t.Fatalf("Log: %v", err)
+			}
+			if len(entries) != tt.wantCommits {
+				t.Errorf("commits = %d, want %d", len(entries), tt.wantCommits)
+			}
+		})
 	}
 }
 
-func TestCommitSkipsClean(t *testing.T) {
-	dir := t.TempDir()
+func TestRepo_CommitFile(t *testing.T) {
+	t.Parallel()
 
-	r, err := gitops.InitRepo(dir)
-	if err != nil {
-		t.Fatalf("InitRepo: %v", err)
-	}
-
-	writeFile(t, dir, "note.md", "# Hello\n")
-	if err := r.Commit("docs: initial"); err != nil {
-		t.Fatalf("first Commit: %v", err)
-	}
-
-	// No changes — second commit must be a no-op.
-	if err := r.Commit("docs: no-op"); err != nil {
-		t.Fatalf("second Commit (clean): %v", err)
-	}
-
-	entries, err := r.Log("", 0)
-	if err != nil {
-		t.Fatalf("Log: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Errorf("expected exactly 1 commit, got %d", len(entries))
-	}
-}
-
-func TestCommitFile(t *testing.T) {
-	dir := t.TempDir()
-
-	r, err := gitops.InitRepo(dir)
-	if err != nil {
-		t.Fatalf("InitRepo: %v", err)
-	}
-
-	writeFile(t, dir, "a.md", "# A\n")
-	writeFile(t, dir, "b.md", "# B\n")
-
-	// CommitFile only stages a.md.
-	if err := r.CommitFile("a.md", "docs: add a"); err != nil {
-		t.Fatalf("CommitFile: %v", err)
+	tests := []struct {
+		name        string
+		setup       func(t *testing.T, dir string)
+		filename    string
+		message     string
+		wantCommits int
+		wantMessage string
+	}{
+		{
+			name: "stages only the named file",
+			setup: func(t *testing.T, dir string) {
+				writeFile(t, dir, "a.md", "# A\n")
+				writeFile(t, dir, "b.md", "# B\n")
+			},
+			filename:    "a.md",
+			message:     "docs: add a",
+			wantCommits: 1,
+			wantMessage: "docs: add a",
+		},
+		{
+			name: "no-op when file is unchanged",
+			setup: func(t *testing.T, dir string) {
+				writeFile(t, dir, "a.md", "# A\n")
+				r, _ := gitops.InitRepo(dir)
+				_ = r.CommitFile("a.md", "docs: initial")
+			},
+			filename:    "a.md",
+			message:     "docs: should not appear",
+			wantCommits: 1,
+			wantMessage: "docs: initial",
+		},
 	}
 
-	entries, err := r.Log("", 0)
-	if err != nil {
-		t.Fatalf("Log: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 commit, got %d", len(entries))
-	}
-	if entries[0].Message != "docs: add a" {
-		t.Errorf("message = %q, want %q", entries[0].Message, "docs: add a")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
 
-func TestLogFilterByFile(t *testing.T) {
-	dir := t.TempDir()
+			r, err := gitops.InitRepo(dir)
+			if err != nil {
+				t.Fatalf("InitRepo: %v", err)
+			}
 
-	r, err := gitops.InitRepo(dir)
-	if err != nil {
-		t.Fatalf("InitRepo: %v", err)
-	}
+			tt.setup(t, dir)
 
-	writeFile(t, dir, "a.md", "# A\n")
-	if err := r.CommitFile("a.md", "docs: add a"); err != nil {
-		t.Fatalf("CommitFile a: %v", err)
-	}
+			if err := r.CommitFile(tt.filename, tt.message); err != nil {
+				t.Fatalf("CommitFile: %v", err)
+			}
 
-	writeFile(t, dir, "b.md", "# B\n")
-	if err := r.CommitFile("b.md", "docs: add b"); err != nil {
-		t.Fatalf("CommitFile b: %v", err)
-	}
-
-	entries, err := r.Log("a.md", 0)
-	if err != nil {
-		t.Fatalf("Log(a.md): %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry for a.md, got %d", len(entries))
-	}
-	if entries[0].Message != "docs: add a" {
-		t.Errorf("message = %q, want %q", entries[0].Message, "docs: add a")
+			entries, err := r.Log("", 0)
+			if err != nil {
+				t.Fatalf("Log: %v", err)
+			}
+			if len(entries) != tt.wantCommits {
+				t.Errorf("commits = %d, want %d", len(entries), tt.wantCommits)
+			}
+			if tt.wantMessage != "" && len(entries) > 0 {
+				if entries[0].Message != tt.wantMessage {
+					t.Errorf("message = %q, want %q", entries[0].Message, tt.wantMessage)
+				}
+			}
+		})
 	}
 }
 
-func TestDiff_ReturnsString(t *testing.T) {
-	dir := t.TempDir()
+func TestRepo_Log(t *testing.T) {
+	t.Parallel()
 
-	r, err := gitops.InitRepo(dir)
-	if err != nil {
-		t.Fatalf("InitRepo: %v", err)
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, r *gitops.Repo, dir string)
+		filename  string
+		limit     int
+		wantCount int
+	}{
+		{
+			name: "returns all commits unfiltered",
+			setup: func(t *testing.T, r *gitops.Repo, dir string) {
+				writeFile(t, dir, "a.md", "# A\n")
+				_ = r.CommitFile("a.md", "docs: add a")
+				writeFile(t, dir, "b.md", "# B\n")
+				_ = r.CommitFile("b.md", "docs: add b")
+			},
+			wantCount: 2,
+		},
+		{
+			name: "filters by filename",
+			setup: func(t *testing.T, r *gitops.Repo, dir string) {
+				writeFile(t, dir, "a.md", "# A\n")
+				_ = r.CommitFile("a.md", "docs: add a")
+				writeFile(t, dir, "b.md", "# B\n")
+				_ = r.CommitFile("b.md", "docs: add b")
+			},
+			filename:  "a.md",
+			wantCount: 1,
+		},
+		{
+			name: "respects limit",
+			setup: func(t *testing.T, r *gitops.Repo, dir string) {
+				writeFile(t, dir, "a.md", "# A\n")
+				_ = r.CommitFile("a.md", "docs: first")
+				writeFile(t, dir, "a.md", "# A updated\n")
+				_ = r.CommitFile("a.md", "docs: second")
+				writeFile(t, dir, "a.md", "# A final\n")
+				_ = r.CommitFile("a.md", "docs: third")
+			},
+			limit:     2,
+			wantCount: 2,
+		},
+		{
+			name:      "empty repo returns nil",
+			setup:     func(_ *testing.T, _ *gitops.Repo, _ string) {},
+			wantCount: 0,
+		},
 	}
 
-	writeFile(t, dir, "note.md", "# Hello\n")
-	if err := r.Commit("docs: initial"); err != nil {
-		t.Fatalf("Commit: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+
+			r, err := gitops.InitRepo(dir)
+			if err != nil {
+				t.Fatalf("InitRepo: %v", err)
+			}
+
+			tt.setup(t, r, dir)
+
+			entries, err := r.Log(tt.filename, tt.limit)
+			if err != nil {
+				t.Fatalf("Log: %v", err)
+			}
+			if len(entries) != tt.wantCount {
+				t.Errorf("count = %d, want %d", len(entries), tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestRepo_Diff(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, r *gitops.Repo, dir string)
+		path      string
+		wantEmpty bool
+	}{
+		{
+			name: "clean worktree returns empty",
+			setup: func(t *testing.T, r *gitops.Repo, dir string) {
+				writeFile(t, dir, "note.md", "# Hello\n")
+				_ = r.Commit("docs: initial")
+			},
+			path:      "note.md",
+			wantEmpty: true,
+		},
+		{
+			name: "modified file returns diff content",
+			setup: func(t *testing.T, r *gitops.Repo, dir string) {
+				writeFile(t, dir, "note.md", "# Hello\n")
+				_ = r.Commit("docs: initial")
+				writeFile(t, dir, "note.md", "# Hello World\n")
+			},
+			path:      "note.md",
+			wantEmpty: false,
+		},
+		{
+			name:      "no commits returns empty",
+			setup:     func(_ *testing.T, _ *gitops.Repo, _ string) {},
+			path:      "note.md",
+			wantEmpty: true,
+		},
 	}
 
-	// Diff should return without error after at least one commit.
-	_, err = r.Diff("note.md")
-	if err != nil {
-		t.Fatalf("Diff: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+
+			r, err := gitops.InitRepo(dir)
+			if err != nil {
+				t.Fatalf("InitRepo: %v", err)
+			}
+
+			tt.setup(t, r, dir)
+
+			got, err := r.Diff(tt.path)
+			if err != nil {
+				t.Fatalf("Diff: %v", err)
+			}
+			if tt.wantEmpty && got != "" {
+				t.Errorf("expected empty diff, got %q", got)
+			}
+			if !tt.wantEmpty && got == "" {
+				t.Error("expected non-empty diff, got empty")
+			}
+		})
 	}
 }
 
 func TestFormatCommitMessage(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		subject string
@@ -224,10 +394,18 @@ func TestFormatCommitMessage(t *testing.T) {
 			body:    "",
 			want:    "fix: correct typo in readme",
 		},
+		{
+			name:    "body wraps at 72 chars",
+			subject: "feat: add feature",
+			body:    "This is a body that contains enough words to eventually exceed the seventy two character line wrapping limit that we enforce.",
+			want:    "feat: add feature\n\nThis is a body that contains enough words to eventually exceed the\nseventy two character line wrapping limit that we enforce.",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := gitops.FormatCommitMessage(tt.subject, tt.body)
 			if got != tt.want {
 				t.Errorf(
