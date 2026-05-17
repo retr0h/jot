@@ -22,6 +22,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -84,7 +85,7 @@ var taskDueCmd = &cobra.Command{
 
 		cli.Printf(out, "%s\n", cli.Mute(
 			out,
-			cli.Pad("DUE", dueW+2)+cli.Pad("DESCRIPTION", descW+2)+"NOTE",
+			cli.Pad("DUE", dueW+2)+cli.Pad("DESCRIPTION", descW+2)+cli.Pad("NOTE", noteW+2)+"TAGS",
 		))
 
 		for _, t := range tasks {
@@ -96,9 +97,14 @@ var taskDueCmd = &cobra.Command{
 			}
 
 			desc := cli.Pad(t.Description, descW+2)
-			note := cli.Mute(out, t.NoteSlug)
+			note := cli.Mute(out, cli.Pad(t.NoteSlug, noteW+2))
 
-			cli.Printf(out, "%s%s%s\n", dueCol, desc, note)
+			tags := cli.Mute(out, "-")
+			if len(t.Tags) > 0 {
+				tags = cli.Tag(out, "#"+strings.Join(t.Tags, " #"))
+			}
+
+			cli.Printf(out, "%s%s%s%s\n", dueCol, desc, note, tags)
 		}
 
 		return nil

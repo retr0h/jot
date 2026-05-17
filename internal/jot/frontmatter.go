@@ -49,7 +49,16 @@ func ParseFrontmatter(content string) (Frontmatter, string) {
 		}
 		return fm, content
 	}
+	fm.Tags = normalizeTags(fm.Tags)
 	return fm, string(body)
+}
+
+// normalizeTags replaces spaces with hyphens in each tag.
+func normalizeTags(tags []string) []string {
+	for i, t := range tags {
+		tags[i] = strings.ReplaceAll(strings.TrimSpace(t), " ", "-")
+	}
+	return tags
 }
 
 // ScaffoldFrontmatter returns a complete note scaffold: a YAML front-matter

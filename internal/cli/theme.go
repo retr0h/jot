@@ -54,6 +54,7 @@ type Theme struct {
 	Info      lipgloss.Style
 	Warn      lipgloss.Style
 	Soon      lipgloss.Style
+	Tag       lipgloss.Style
 	RowToday  lipgloss.Style
 	RowSoon   lipgloss.Style
 	BannerTop lipgloss.Style
@@ -91,6 +92,7 @@ var ThemeMaxheadroom = Theme{
 	Info:      fg("#00d4ff"), // mhCyan
 	Warn:      fg("#00d4ff"), // mhCyan — due today
 	Soon:      fg("#00d4ff"), // mhCyan — due this week
+	Tag:       fg("#ffb86c"), // mhOrange — tags
 	RowToday:  bg("#33162a"), // mhPink #ff6ec7 darkened for bg
 	RowSoon:   bg("#1f0f1a"), // mhPink #ff6ec7 barely-there bg
 	BannerTop: faint,
@@ -130,6 +132,9 @@ func Err(w io.Writer, s string) string { return render(w, active.Err, s) }
 
 // Info returns s in the cool-toned info/hint color.
 func Info(w io.Writer, s string) string { return render(w, active.Info, s) }
+
+// Tag renders s in the tag color (purple/magenta).
+func Tag(w io.Writer, s string) string { return render(w, active.Tag, s) }
 
 // Banner returns the JOT block-letter logo, themed via the active
 // theme's BannerTop/BannerBot colors. Line-level coloring matches

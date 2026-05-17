@@ -22,6 +22,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -62,20 +63,34 @@ var noteListCmd = &cobra.Command{
 			}
 		}
 
-		hdr := cli.Pad("CREATED", dateW+2) + cli.Pad("TITLE", titleW+2) + "SLUG"
+		hdr := cli.Pad(
+			"CREATED",
+			dateW+2,
+		) + cli.Pad(
+			"TITLE",
+			titleW+2,
+		) + cli.Pad(
+			"SLUG",
+			slugW+2,
+		) + "TAGS"
 		cli.Printf(out, "%s\n", cli.Mute(out, hdr))
 
 		for _, n := range notes {
 			date := cli.Info(out, cli.Pad(n.Created, dateW+2))
 			title := cli.Accent(out, cli.Pad(n.Title, titleW+2))
-			slug := cli.Mute(out, n.Slug)
+			slug := cli.Mute(out, cli.Pad(n.Slug, slugW+2))
+
+			tags := cli.Mute(out, "-")
+			if len(n.Tags) > 0 {
+				tags = cli.Tag(out, "#"+strings.Join(n.Tags, " #"))
+			}
 
 			secure := ""
 			if n.Secure {
 				secure = "  " + cli.Err(out, "[secure]")
 			}
 
-			cli.Printf(out, "%s%s%s%s\n", date, title, slug, secure)
+			cli.Printf(out, "%s%s%s%s%s\n", date, title, slug, tags, secure)
 		}
 
 		return nil
