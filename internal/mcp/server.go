@@ -201,6 +201,17 @@ without .md), a title, and optional tags in YAML front-matter.
 - delete_note   remove a note file from disk
 - search_notes  case-insensitive substring search across note titles and bodies
 
+## Secure Notes
+
+Notes with secure: true in front-matter are encrypted via kvlt (age + SSH keys).
+get_note transparently decrypts secure notes. create_note accepts a secure flag
+to encrypt the body on creation.
+
+IMPORTANT: Secure note operations require passphrase-free SSH keys configured in
+the ssh_keys config option. There is no TTY available for interactive passphrase
+prompts over MCP. If decryption fails, advise the user to configure a
+passphrase-free key in their jot.yaml ssh_keys list.
+
 ## Tasks
 
 Tasks are @task markers embedded in notes. They carry an optional due date
