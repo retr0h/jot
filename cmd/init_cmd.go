@@ -106,10 +106,10 @@ var initCmd = &cobra.Command{
 		if err != nil {
 			cli.Print(out, cli.Info(out, "kvlt vault skipped: "+err.Error()))
 		} else {
-			if vaultErr := jot.InitVault(cfgDir, []string{pubKey}); vaultErr != nil {
+			if vaultErr := jot.InitVault(notesDir, []string{pubKey}); vaultErr != nil {
 				logger.Debug("kvlt vault init skipped", "reason", vaultErr.Error())
 			} else {
-				cli.Print(out, cli.Success(out, "kvlt vault:  "+cli.Accent(out, cfgDir)))
+				cli.Print(out, cli.Success(out, "kvlt vault:  "+cli.Accent(out, notesDir)))
 			}
 		}
 

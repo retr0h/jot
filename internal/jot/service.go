@@ -36,10 +36,9 @@ import (
 // Service holds configuration state and provides all jot domain operations
 // as methods. Consumers define narrow interfaces against this type.
 type Service struct {
-	NotesDir  string
-	ConfigDir string
-	SSHKeys   []string
-	Prompt    kvlt.PassphrasePrompt
+	NotesDir string
+	SSHKeys  []string
+	Prompt   kvlt.PassphrasePrompt
 }
 
 // CatNote returns the body of a note by slug, transparently decrypting
@@ -51,7 +50,7 @@ func (s *Service) CatNote(slug string) (string, error) {
 	}
 
 	if note.Secure {
-		store, err := NewSecureStore(s.ConfigDir, s.SSHKeys, s.Prompt)
+		store, err := NewSecureStore(s.NotesDir, s.SSHKeys, s.Prompt)
 		if err != nil {
 			return "", fmt.Errorf("open secure store: %w", err)
 		}
@@ -72,7 +71,7 @@ func (s *Service) EncryptNote(slug string) error {
 		return fmt.Errorf("note %q is already encrypted", slug)
 	}
 
-	store, err := NewSecureStore(s.ConfigDir, s.SSHKeys, s.Prompt)
+	store, err := NewSecureStore(s.NotesDir, s.SSHKeys, s.Prompt)
 	if err != nil {
 		return fmt.Errorf("open secure store: %w", err)
 	}
@@ -105,7 +104,7 @@ func (s *Service) DecryptNote(slug string) error {
 		return fmt.Errorf("note %q is not encrypted", slug)
 	}
 
-	store, err := NewSecureStore(s.ConfigDir, s.SSHKeys, s.Prompt)
+	store, err := NewSecureStore(s.NotesDir, s.SSHKeys, s.Prompt)
 	if err != nil {
 		return fmt.Errorf("open secure store: %w", err)
 	}
@@ -238,7 +237,7 @@ func (s *Service) CreateNote(
 	notePath := filepath.Join(s.NotesDir, slug+".md")
 
 	if secure {
-		store, err := NewSecureStore(s.ConfigDir, s.SSHKeys, s.Prompt)
+		store, err := NewSecureStore(s.NotesDir, s.SSHKeys, s.Prompt)
 		if err != nil {
 			return "", "", fmt.Errorf("open secure store: %w", err)
 		}
