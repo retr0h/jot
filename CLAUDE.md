@@ -5,12 +5,12 @@ Architecture intent + standards for Claude Code working in this repo.
 ## Project
 
 **jot** — terminal-first markdown notes + todos with linked tasks. Notes
-are plain `.md` files with YAML frontmatter, edited in `$EDITOR` (nvim).
-`@task` markers with `#tags` create linked todos with due dates. `[[slug]]`
-wiki links connect notes. Git backs everything — every save is a commit.
-Sensitive notes encrypt at rest via kvlt (age + SSH keys). An MCP server
-exposes the full surface to LLM agents. No database: files are the source
-of truth.
+are plain `.md` files with YAML frontmatter, edited in nvim (hardcoded —
+obsidian.nvim provides wiki-link navigation). `@task` markers with `#tags`
+create linked todos with due dates. `[[slug]]` wiki links connect notes.
+Git backs everything — every save is a commit. Sensitive notes encrypt at
+rest via kvlt (age + SSH keys). An MCP server exposes the full surface to
+LLM agents. No database: files are the source of truth.
 
 ## Architecture in one screen
 
@@ -18,7 +18,7 @@ of truth.
 jot (binary)
 ├── cmd/            cobra CLI tree
 ├── internal/
-│   ├── cli/        theme (maxheadroom palette), banner, output helpers
+│   ├── cli/        theme, banner, output helpers, TTY prompts
 │   ├── config/     Config struct, viper mapstructure bindings
 │   ├── gitops/     git integration — commit, log, diff, show
 │   ├── jot/        core domain — parser (@task), editor, slug, date, kvlt
@@ -32,11 +32,14 @@ Command tree (long form / short alias):
 jot
 ├── init
 ├── note (n)
-│   ├── new (n)    --title/-t <title> [--secure/-x]
+│   ├── new (n)    [--title/-t <title>] [--secure/-x]  (omit title for scratch)
 │   ├── edit (e)   --slug/-s <slug>
+│   ├── cat (c)    --slug/-s <slug>
 │   ├── mv (m)     --slug/-s <slug> --title/-t <new-title>
 │   ├── list (l)   [--tag/-T X]
-│   └── search (s) --query/-q <query>
+│   ├── search (s) --query/-q <query>
+│   ├── encrypt (enc) --slug/-s <slug>
+│   └── decrypt (dec) --slug/-s <slug>
 ├── task (t)
 │   ├── list (l)   [--status/-S X] [--tag/-T X]
 │   ├── done (d)   --slug/-s <slug> --desc/-D <desc>
@@ -100,4 +103,19 @@ go run . --help
 ## Data directory
 
 `~/.config/jot/` by default. Override via `--config` flag or `JOT_CONFIG_DIR` env.
-Notes directory defaults to `<config>/notes`; override via `JOT_NOTES_DIR`.
+Notes directory defaults to `<config>/notes`; override via `--notes-dir` flag
+or `JOT_NOTES_DIR` env.
+
+## Configuration (jot.yaml)
+
+```yaml
+# notes_dir: ""       # override notes directory
+# ssh_keys: []        # SSH key paths for kvlt (empty = auto-discover ~/.ssh/)
+```
+
+Global flags: `--config`, `--notes-dir`, `--ssh-key` (repeatable), `--debug`, `--json`.
+
+## Scratch
+
+`jot note new` with no `--title` opens `scratch.md` — a persistent scratch
+pad created by `jot init`. Always one command away for quick dumps.
