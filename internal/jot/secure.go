@@ -26,7 +26,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"filippo.io/age"
 	"github.com/retr0h/kvlt/pkg/kvlt"
+	"golang.org/x/term"
 )
 
 // SecureStore wraps a kvlt Provider to store encrypted notes.
@@ -34,9 +36,40 @@ type SecureStore struct {
 	provider kvlt.Provider
 }
 
+// ttyPassphrasePrompt reads a passphrase from /dev/tty.
+func ttyPassphrasePrompt(keyPath string) ([]byte, error) {
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open /dev/tty: %w", err)
+	}
+	defer func() { _ = tty.Close() }()
+
+	_, _ = fmt.Fprintf(tty, "Enter passphrase for %s: ", keyPath)
+	pass, err := term.ReadPassword(int(tty.Fd()))
+	_, _ = fmt.Fprintln(tty)
+	if err != nil {
+		return nil, fmt.Errorf("read passphrase: %w", err)
+	}
+	return pass, nil
+}
+
 // NewSecureStore opens the "jot" vault from the kvlt store at configDir.
-func NewSecureStore(configDir string) (*SecureStore, error) {
-	store, err := kvlt.NewStore(configDir, nil)
+// When sshKeys is non-empty, only those paths are used for identity
+// resolution; otherwise kvlt's default SSH key discovery is used.
+func NewSecureStore(
+	configDir string,
+	sshKeys []string,
+) (*SecureStore, error) {
+	var resolver kvlt.IdentityResolver
+	if len(sshKeys) > 0 {
+		resolver = func() ([]age.Identity, error) {
+			return kvlt.LoadSSHIdentities(sshKeys, ttyPassphrasePrompt)
+		}
+	} else {
+		resolver = kvlt.DefaultIdentityResolver(ttyPassphrasePrompt)
+	}
+
+	store, err := kvlt.NewStore(configDir, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("kvlt store: %w", err)
 	}

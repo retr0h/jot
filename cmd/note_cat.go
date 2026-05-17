@@ -23,29 +23,24 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/gitops"
 	"github.com/retr0h/jot/internal/jot"
 )
 
-var noteEncryptSlugFlag string
+var noteCatSlugFlag string
 
-var noteEncryptCmd = &cobra.Command{
-	Use:     "encrypt",
-	Aliases: []string{"enc"},
-	Short:   "Encrypt an existing note via kvlt",
+var noteCatCmd = &cobra.Command{
+	Use:     "cat",
+	Aliases: []string{"c"},
+	Short:   "Print a note's content to stdout",
 	Args:    cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
-		cfgDir := ConfigDir()
 
-		slug := noteEncryptSlugFlag
+		slug := noteCatSlugFlag
 		if slug == "" {
 			picked, err := pickNote(notesDir)
 			if err != nil {
@@ -58,58 +53,27 @@ var noteEncryptCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
 		if note.Secure {
-			return fmt.Errorf("note %q is already encrypted", slug)
+			store, err := jot.NewSecureStore(ConfigDir(), SSHKeys())
+			if err != nil {
+				return fmt.Errorf("open secure store: %w", err)
+			}
+			body, err := store.ReadNote(context.Background(), slug)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprint(out, body)
+			return nil
 		}
 
-		store, err := jot.NewSecureStore(cfgDir, SSHKeys())
-		if err != nil {
-			return fmt.Errorf("open secure store: %w", err)
-		}
-
-		if err := store.WriteNote(context.Background(), slug, note.Body); err != nil {
-			return err
-		}
-
-		scaffold := fmt.Sprintf(
-			"---\ntitle: %q\ntags: [%s]\ncreated: %s\nsecure: true\n---\n",
-			note.Title,
-			formatTags(note.Tags),
-			note.Created,
-		)
-		if err := os.WriteFile(note.Path, []byte(scaffold), 0o600); err != nil {
-			return fmt.Errorf("rewrite note file: %w", err)
-		}
-
-		if repo, err := gitops.OpenRepo(notesDir); err == nil {
-			msg := gitops.FormatCommitMessage(
-				fmt.Sprintf("note: encrypt %s", slug),
-				"",
-			)
-			_ = repo.Commit(msg)
-		}
-
-		cli.Print(out, cli.Success(out, "encrypted: "+cli.Accent(out, slug)))
+		_, _ = fmt.Fprint(out, note.Body)
 		return nil
 	},
 }
 
-func formatTags(tags []string) string {
-	if len(tags) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for i, t := range tags {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(t)
-	}
-	return b.String()
-}
-
 func init() {
-	noteEncryptCmd.Flags().
-		StringVarP(&noteEncryptSlugFlag, "slug", "s", "", "note slug to encrypt")
-	noteCmd.AddCommand(noteEncryptCmd)
+	noteCatCmd.Flags().
+		StringVarP(&noteCatSlugFlag, "slug", "s", "", "note slug to print")
+	noteCmd.AddCommand(noteCatCmd)
 }
