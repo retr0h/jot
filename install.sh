@@ -10,14 +10,11 @@
 set -euo pipefail
 APP=jot
 
-# Visual style mirrors kvlt's installer with jot's accent. ACCENT
-# is mhOrange from the shared maxheadroom palette (#ffb86c) used by
-# the in-app TUI; truecolor (24-bit) escape so the install banner and
-# the running app paint with the exact same hue. Closest xterm-256
-# fallback is 215 (#ffaf5f) for terminals that ignore 24-bit.
+# Visual style mirrors the maxheadroom palette. ACCENT is mhMagenta
+# (#c678dd) — jot's unique color across CLI, installer, and nvim.
 MUTED='\033[0;2m'
 RED='\033[0;31m'
-ACCENT='\033[38;2;255;184;108m'
+ACCENT='\033[38;2;198;120;221m'
 NC='\033[0m' # reset
 
 err() {
@@ -296,8 +293,9 @@ print_summary() {
         print_message warning "Add this to your shell rc:"
         printf "  ${NC}export PATH=\"%s:\$PATH\"${NC}\n\n" "$install_dir"
     fi
-    printf "${MUTED}Start writing:${NC}\n"
-    printf "  jot   ${MUTED}# open jot${NC}\n"
+    printf "${MUTED}Get started:${NC}\n"
+    printf "  jot init                          ${MUTED}# create config + notes dir${NC}\n"
+    printf "  jot note new --title \"standup\"     ${MUTED}# open a note in \$EDITOR${NC}\n"
     printf "\n"
     printf "${MUTED}Docs:${NC} https://github.com/retr0h/jot\n"
     printf "\n"
