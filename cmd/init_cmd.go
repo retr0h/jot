@@ -24,11 +24,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
 	"github.com/retr0h/jot/internal/gitops"
+	"github.com/retr0h/jot/internal/jot"
 )
 
 // defaultConfig is the template written to jot.yaml on first init.
@@ -84,6 +86,16 @@ var initCmd = &cobra.Command{
 		keepFile := filepath.Join(notesDir, ".gitkeep")
 		if _, statErr := os.Stat(keepFile); os.IsNotExist(statErr) {
 			_ = os.WriteFile(keepFile, []byte(""), 0o600)
+		}
+
+		// Create scratch.md — a persistent scratch pad always one command away.
+		scratchPath := filepath.Join(notesDir, "scratch.md")
+		if _, statErr := os.Stat(scratchPath); os.IsNotExist(statErr) {
+			content := jot.ScaffoldFrontmatter("Scratch", time.Now().Format("2006-01-02"))
+			if err := os.WriteFile(scratchPath, []byte(content), 0o600); err != nil {
+				return fmt.Errorf("write scratch note: %w", err)
+			}
+			cli.Print(out, cli.Success(out, "scratch note: "+cli.Accent(out, scratchPath)))
 		}
 
 		if err := repo.Commit("chore: init jot notes repository"); err != nil {

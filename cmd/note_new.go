@@ -52,6 +52,24 @@ var noteNewCmd = &cobra.Command{
 		rawTitle := noteNewTitleFlag
 		notesDir := NotesDir()
 
+		// No title — open scratch.md.
+		if rawTitle == "" {
+			scratchPath := filepath.Join(notesDir, "scratch.md")
+			if _, err := os.Stat(scratchPath); os.IsNotExist(err) {
+				content := jot.ScaffoldFrontmatter("Scratch", time.Now().Format("2006-01-02"))
+				if err := os.WriteFile(scratchPath, []byte(content), 0o600); err != nil {
+					return fmt.Errorf("write scratch note: %w", err)
+				}
+			}
+			if err := jot.Edit(scratchPath); err != nil {
+				return fmt.Errorf("edit scratch: %w", err)
+			}
+			if repo, err := gitops.OpenRepo(notesDir); err == nil {
+				_ = repo.Commit(gitops.FormatCommitMessage("note: update scratch", ""))
+			}
+			return nil
+		}
+
 		// Support "subdir/Title" notation.
 		subdir := ""
 		title := rawTitle
@@ -97,8 +115,7 @@ var noteNewCmd = &cobra.Command{
 
 func init() {
 	noteNewCmd.Flags().
-		StringVarP(&noteNewTitleFlag, "title", "t", "", "note title (use path/title for subdirs)")
-	_ = noteNewCmd.MarkFlagRequired("title")
+		StringVarP(&noteNewTitleFlag, "title", "t", "", "note title (use path/title for subdirs; omit for scratch)")
 	noteNewCmd.Flags().
 		BoolVarP(&noteSecureFlag, "secure", "x", false, "mark note as secure (sets secure: true in front-matter)")
 }
