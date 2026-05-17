@@ -27,7 +27,6 @@ import (
 
 	"github.com/retr0h/jot/internal/cli"
 	"github.com/retr0h/jot/internal/gitops"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 var noteDecryptSlugFlag string
@@ -48,13 +47,6 @@ var noteDecryptCmd = &cobra.Command{
 				return err
 			}
 			slug = picked
-		}
-
-		svc := &jot.Service{
-			NotesDir:  notesDir,
-			ConfigDir: ConfigDir(),
-			SSHKeys:   SSHKeys(),
-			Prompt:    cli.PassphrasePrompt,
 		}
 
 		if err := svc.DecryptNote(slug); err != nil {

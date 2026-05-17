@@ -1,15 +1,15 @@
 // Copyright (c) 2026 John Dewey
-
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to
 // deal in the Software without restriction, including without limitation the
 // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
 // sell copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -36,6 +36,7 @@ import (
 
 	"github.com/retr0h/jot/internal/cli"
 	"github.com/retr0h/jot/internal/config"
+	"github.com/retr0h/jot/internal/jot"
 )
 
 // logger is the package-level slog logger, populated from initLogger
@@ -43,6 +44,7 @@ import (
 // directly.
 var (
 	appConfig  config.Config
+	svc        *jot.Service
 	logger     = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	jsonOutput bool
 )
@@ -133,6 +135,13 @@ func initConfig() {
 
 	if appConfig.NotesDir == "" {
 		appConfig.NotesDir = filepath.Join(appConfig.Config, "notes")
+	}
+
+	svc = &jot.Service{
+		NotesDir:  appConfig.NotesDir,
+		ConfigDir: appConfig.Config,
+		SSHKeys:   appConfig.SSHKeys,
+		Prompt:    cli.PassphrasePrompt,
 	}
 }
 

@@ -24,9 +24,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 var noteCatSlugFlag string
@@ -47,13 +44,6 @@ var noteCatCmd = &cobra.Command{
 				return err
 			}
 			slug = picked
-		}
-
-		svc := &jot.Service{
-			NotesDir:  notesDir,
-			ConfigDir: ConfigDir(),
-			SSHKeys:   SSHKeys(),
-			Prompt:    cli.PassphrasePrompt,
 		}
 
 		body, err := svc.CatNote(slug)

@@ -27,7 +27,6 @@ import (
 
 	"github.com/retr0h/jot/internal/cli"
 	"github.com/retr0h/jot/internal/gitops"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 var (
@@ -56,13 +55,6 @@ var noteMvCmd = &cobra.Command{
 		newTitle := noteMvTitleFlag
 		if newTitle == "" {
 			return fmt.Errorf("--title/-t is required")
-		}
-
-		svc := &jot.Service{
-			NotesDir:  notesDir,
-			ConfigDir: ConfigDir(),
-			SSHKeys:   SSHKeys(),
-			Prompt:    cli.PassphrasePrompt,
 		}
 
 		newSlug, err := svc.RenameNote(oldSlug, newTitle)

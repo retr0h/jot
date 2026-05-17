@@ -308,7 +308,9 @@ func (s *Server) handleTaskDone(
 		return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
 	}
 
-	return textResult(fmt.Sprintf(`{"slug": %q, "task": %q, "done": true}`, args.Slug, args.Desc)), nil, nil
+	return textResult(
+		fmt.Sprintf(`{"slug": %q, "task": %q, "done": true}`, args.Slug, args.Desc),
+	), nil, nil
 }
 
 func (s *Server) handleTasksDue(
