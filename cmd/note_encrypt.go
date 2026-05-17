@@ -62,7 +62,7 @@ var noteEncryptCmd = &cobra.Command{
 			return fmt.Errorf("note %q is already encrypted", slug)
 		}
 
-		store, err := jot.NewSecureStore(cfgDir, SSHKeys())
+		store, err := jot.NewSecureStore(cfgDir, SSHKeys(), cli.PassphrasePrompt)
 		if err != nil {
 			return fmt.Errorf("open secure store: %w", err)
 		}

@@ -26,6 +26,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/retr0h/jot/internal/cli"
 	"github.com/retr0h/jot/internal/jot"
 )
 
@@ -55,7 +56,7 @@ var noteCatCmd = &cobra.Command{
 		}
 
 		if note.Secure {
-			store, err := jot.NewSecureStore(ConfigDir(), SSHKeys())
+			store, err := jot.NewSecureStore(ConfigDir(), SSHKeys(), cli.PassphrasePrompt)
 			if err != nil {
 				return fmt.Errorf("open secure store: %w", err)
 			}
