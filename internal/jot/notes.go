@@ -55,6 +55,7 @@ type Task struct {
 	NoteSlug    string   `json:"note_slug"`
 	Description string   `json:"description"`
 	DueDate     string   `json:"due_date"`
+	DoneDate    string   `json:"done_date"`
 	Tags        []string `json:"tags"`
 	Done        string   `json:"done"`
 	Line        int      `json:"line"`
@@ -93,6 +94,7 @@ func ReadNote(path string) (*Note, error) {
 			NoteSlug:    slug,
 			Description: r.Description,
 			DueDate:     r.DueDate,
+			DoneDate:    r.DoneDate,
 			Done:        done,
 			Line:        r.Line,
 		}

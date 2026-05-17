@@ -51,6 +51,16 @@ var taskListCmd = &cobra.Command{
 			return fmt.Errorf("list tasks: %w", err)
 		}
 
+		if taskListStatusFlag == "open" {
+			todayStr := time.Now().Format("2006-01-02")
+			done, _ := jot.AllTasks(NotesDir(), "done", taskListTagFlag)
+			for _, t := range done {
+				if t.DoneDate == todayStr {
+					tasks = append(tasks, t)
+				}
+			}
+		}
+
 		if len(tasks) == 0 {
 			return nil
 		}

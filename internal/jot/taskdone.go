@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // MarkTaskDone finds the first checkbox task in notePath whose description
@@ -52,6 +53,7 @@ func MarkTaskDone(
 				continue
 			}
 			t.Done = true
+			t.DoneDate = time.Now().Format("2006-01-02")
 			lines[i] = FormatTask(t)
 			found = true
 			break

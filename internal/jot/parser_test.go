@@ -143,6 +143,26 @@ func TestParseTaskDone(t *testing.T) {
 	}
 }
 
+func TestParseTaskDoneDate(t *testing.T) {
+	content := "- [x] reviewed PR | due:2026-05-16 | done:2026-05-17 #work"
+	tasks := jot.ParseTasks(content)
+
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+
+	task := tasks[0]
+	if !task.Done {
+		t.Error("expected Done = true")
+	}
+	if task.DoneDate != "2026-05-17" {
+		t.Errorf("DoneDate = %q, want %q", task.DoneDate, "2026-05-17")
+	}
+	if task.DueDate != "2026-05-16" {
+		t.Errorf("DueDate = %q, want %q", task.DueDate, "2026-05-16")
+	}
+}
+
 func TestParseTaskTags(t *testing.T) {
 	content := "- [ ] review meshx PR #meshx #pr"
 	tasks := jot.ParseTasks(content)
@@ -206,6 +226,17 @@ func TestFormatTask(t *testing.T) {
 				Labels:      []string{"work"},
 			},
 			want: "- [x] review PR | due:2026-05-16 #work",
+		},
+		{
+			name: "done with due and done date",
+			task: jot.RawTask{
+				Description: "review PR",
+				DueDate:     "2026-05-16",
+				DoneDate:    "2026-05-17",
+				Done:        true,
+				Labels:      []string{"work"},
+			},
+			want: "- [x] review PR | due:2026-05-16 | done:2026-05-17 #work",
 		},
 	}
 

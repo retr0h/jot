@@ -36,6 +36,7 @@ var (
 type RawTask struct {
 	Description string
 	DueDate     string
+	DoneDate    string
 	Labels      []string
 	Line        int
 	Done        bool
@@ -86,6 +87,8 @@ func parseTaskContent(content string) RawTask {
 			task.Description = field
 		case strings.HasPrefix(field, "due:"):
 			task.DueDate = strings.TrimPrefix(field, "due:")
+		case strings.HasPrefix(field, "done:"):
+			task.DoneDate = strings.TrimPrefix(field, "done:")
 		}
 	}
 
@@ -95,7 +98,7 @@ func parseTaskContent(content string) RawTask {
 // FormatTask produces a complete checkbox line from a RawTask:
 //
 //   - [ ] description | due:friday #tag1 #tag2
-//   - [x] description | due:friday #tag1 #tag2
+//   - [x] description | due:friday | done:2026-05-17 #tag1 #tag2
 func FormatTask(task RawTask) string {
 	check := " "
 	if task.Done {
@@ -105,6 +108,9 @@ func FormatTask(task RawTask) string {
 	parts := []string{task.Description}
 	if task.DueDate != "" {
 		parts = append(parts, "due:"+task.DueDate)
+	}
+	if task.DoneDate != "" {
+		parts = append(parts, "done:"+task.DoneDate)
 	}
 
 	result := "- [" + check + "] " + strings.Join(parts, " | ")
