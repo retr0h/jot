@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"filippo.io/age"
 	"github.com/retr0h/kvlt/pkg/kvlt"
 )
 
@@ -35,8 +36,25 @@ type SecureStore struct {
 }
 
 // NewSecureStore opens the "jot" vault from the kvlt store at configDir.
-func NewSecureStore(configDir string) (*SecureStore, error) {
-	store, err := kvlt.NewStore(configDir, nil)
+// When sshKeys is non-empty, only those paths are used for identity
+// resolution; otherwise kvlt's default SSH key discovery is used.
+// The prompt function is called when a passphrase-protected key needs
+// unlocking; pass nil if no interactive prompt is available.
+func NewSecureStore(
+	configDir string,
+	sshKeys []string,
+	prompt kvlt.PassphrasePrompt,
+) (*SecureStore, error) {
+	var resolver kvlt.IdentityResolver
+	if len(sshKeys) > 0 {
+		resolver = func() ([]age.Identity, error) {
+			return kvlt.LoadSSHIdentities(sshKeys, prompt)
+		}
+	} else {
+		resolver = kvlt.DefaultIdentityResolver(prompt)
+	}
+
+	store, err := kvlt.NewStore(configDir, resolver)
 	if err != nil {
 		return nil, fmt.Errorf("kvlt store: %w", err)
 	}

@@ -21,8 +21,8 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -30,38 +30,51 @@ import (
 	"github.com/retr0h/jot/internal/jot"
 )
 
-// noteCmd is the parent for `jot note` — all note management subcommands.
-var noteCmd = &cobra.Command{
-	Use:     "note",
-	Aliases: []string{"n"},
-	Short:   "Manage notes",
+var noteCatSlugFlag string
+
+var noteCatCmd = &cobra.Command{
+	Use:     "cat",
+	Aliases: []string{"c"},
+	Short:   "Print a note's content to stdout",
+	Args:    cobra.NoArgs,
+	RunE: func(c *cobra.Command, _ []string) error {
+		out := c.OutOrStdout()
+		notesDir := NotesDir()
+
+		slug := noteCatSlugFlag
+		if slug == "" {
+			picked, err := pickNote(notesDir)
+			if err != nil {
+				return err
+			}
+			slug = picked
+		}
+
+		note, err := jot.FindNote(notesDir, slug)
+		if err != nil {
+			return err
+		}
+
+		if note.Secure {
+			store, err := jot.NewSecureStore(ConfigDir(), SSHKeys(), cli.PassphrasePrompt)
+			if err != nil {
+				return fmt.Errorf("open secure store: %w", err)
+			}
+			body, err := store.ReadNote(context.Background(), slug)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprint(out, body)
+			return nil
+		}
+
+		_, _ = fmt.Fprint(out, note.Body)
+		return nil
+	},
 }
 
 func init() {
-	noteCmd.AddCommand(noteNewCmd)
-	noteCmd.AddCommand(noteEditCmd)
-	noteCmd.AddCommand(noteListCmd)
-	noteCmd.AddCommand(noteSearchCmd)
-	noteCmd.AddCommand(noteMvCmd)
-	rootCmd.AddCommand(noteCmd)
-}
-
-func pickNote(notesDir string) (string, error) {
-	notes, err := jot.ListNotes(notesDir, "")
-	if err != nil {
-		return "", fmt.Errorf("list notes: %w", err)
-	}
-
-	items := make([]string, 0, len(notes))
-	for _, n := range notes {
-		items = append(items, fmt.Sprintf("%s  %s", n.Slug, n.Title))
-	}
-
-	selected, err := cli.Pick(items, "select note")
-	if err != nil {
-		return "", err
-	}
-
-	slug, _, _ := strings.Cut(selected, "  ")
-	return slug, nil
+	noteCatCmd.Flags().
+		StringVarP(&noteCatSlugFlag, "slug", "s", "", "note slug to print")
+	noteCmd.AddCommand(noteCatCmd)
 }

@@ -11,12 +11,12 @@
 
 Terminal-first markdown notes + todos with linked tasks.
 
-Plain `.md` files with YAML frontmatter, opened in `$EDITOR`. Write
-`[[slug]]` wiki links to connect notes, embed `@task` markers with
-`#tags` to create linked todos, and let jot track everything in git —
-every save is a commit. Sensitive notes encrypt at rest via [kvlt][]
-(age + SSH keys). An MCP server exposes the full surface to LLM agents.
-No database: files are the source of truth.
+Plain `.md` files with YAML frontmatter, edited in nvim with
+obsidian.nvim. Write `[[slug]]` wiki links to connect notes, embed
+`@task` markers with `#tags` to create linked todos, and let jot track
+everything in git — every save is a commit. Sensitive notes encrypt at
+rest via [kvlt][] (age + SSH keys). An MCP server exposes the full
+surface to LLM agents. No database: files are the source of truth.
 
 ## 📦 Install
 
@@ -50,7 +50,7 @@ jot git log
 
 | Feature              | Description                                              |
 | -------------------- | -------------------------------------------------------- |
-| Markdown notes       | `.md` files with YAML frontmatter, edited in `$EDITOR`  |
+| Markdown notes       | `.md` files with YAML frontmatter, edited in nvim       |
 | `[[wiki links]]`     | Cross-reference notes by slug; obsidian.nvim navigates   |
 | `@task` todos        | Due dates + `#tags`; tracked by jot, visible in nvim     |
 | Git-backed           | Every edit auto-commits; `jot git log/diff/show`         |
@@ -152,15 +152,16 @@ Auto-discovered by Claude Code via [`.mcp.json`](.mcp.json):
 `~/.config/jot/jot.yaml`:
 
 ```yaml
-# editor: ""          # override $EDITOR
 # notes_dir: ""       # override notes directory
+# ssh_keys: []        # SSH key paths for kvlt (empty = auto-discover ~/.ssh/)
 ```
 
-Git is always on — every edit auto-commits. Override the config dir with
-`--config` or `JOT_CONFIG_DIR`.
+Git is always on — every edit auto-commits. See [Configuration][] for
+the full reference (env vars, flags, precedence, SSH keys).
 
 ## 📖 Documentation
 
+- [Configuration][] — env vars, flags, SSH keys, data layout
 - [Development][] — architecture, testing conventions, adding commands
 - [Contributing][] — commit style, lint chain, PR checklist
 
@@ -172,5 +173,6 @@ Git is always on — every edit auto-commits. Override the config dir with
 [obsidian.nvim]: https://github.com/epwalsh/obsidian.nvim
 [markview.nvim]: https://github.com/OXY2DEV/markview.nvim
 [MIT]: LICENSE
+[Configuration]: docs/configuration.md
 [Development]: docs/development.md
 [Contributing]: docs/contributing.md

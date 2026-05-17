@@ -40,6 +40,7 @@ const defaultConfig = `# jot configuration — uncomment and adjust as needed.
 # All values can also be set via JOT_<KEY> environment variables.
 
 # notes_dir: ""       # override notes directory
+# ssh_keys: []        # SSH key paths for kvlt (empty = auto-discover)
 `
 
 var initCmd = &cobra.Command{
@@ -96,6 +97,18 @@ var initCmd = &cobra.Command{
 				return fmt.Errorf("write scratch note: %w", err)
 			}
 			cli.Print(out, cli.Success(out, "scratch note: "+cli.Accent(out, scratchPath)))
+		}
+
+		// 5. Initialize kvlt vault for secure notes.
+		pubKey, err := jot.DefaultSSHPubKey()
+		if err != nil {
+			cli.Print(out, cli.Info(out, "kvlt vault skipped: "+err.Error()))
+		} else {
+			if vaultErr := jot.InitVault(cfgDir, []string{pubKey}); vaultErr != nil {
+				logger.Debug("kvlt vault init skipped", "reason", vaultErr.Error())
+			} else {
+				cli.Print(out, cli.Success(out, "kvlt vault:  "+cli.Accent(out, cfgDir)))
+			}
 		}
 
 		if err := repo.Commit("chore: init jot notes repository"); err != nil {

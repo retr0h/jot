@@ -18,50 +18,28 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-package cmd
+package cli
 
 import (
 	"fmt"
-	"strings"
+	"os"
 
-	"github.com/spf13/cobra"
-
-	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/jot"
+	"golang.org/x/term"
 )
 
-// noteCmd is the parent for `jot note` — all note management subcommands.
-var noteCmd = &cobra.Command{
-	Use:     "note",
-	Aliases: []string{"n"},
-	Short:   "Manage notes",
-}
-
-func init() {
-	noteCmd.AddCommand(noteNewCmd)
-	noteCmd.AddCommand(noteEditCmd)
-	noteCmd.AddCommand(noteListCmd)
-	noteCmd.AddCommand(noteSearchCmd)
-	noteCmd.AddCommand(noteMvCmd)
-	rootCmd.AddCommand(noteCmd)
-}
-
-func pickNote(notesDir string) (string, error) {
-	notes, err := jot.ListNotes(notesDir, "")
+// PassphrasePrompt reads a passphrase from /dev/tty for the given key path.
+func PassphrasePrompt(keyPath string) ([]byte, error) {
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
-		return "", fmt.Errorf("list notes: %w", err)
+		return nil, fmt.Errorf("open /dev/tty: %w", err)
 	}
+	defer func() { _ = tty.Close() }()
 
-	items := make([]string, 0, len(notes))
-	for _, n := range notes {
-		items = append(items, fmt.Sprintf("%s  %s", n.Slug, n.Title))
-	}
-
-	selected, err := cli.Pick(items, "select note")
+	_, _ = fmt.Fprintf(tty, "Enter passphrase for %s: ", keyPath)
+	pass, err := term.ReadPassword(int(tty.Fd()))
+	_, _ = fmt.Fprintln(tty)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("read passphrase: %w", err)
 	}
-
-	slug, _, _ := strings.Cut(selected, "  ")
-	return slug, nil
+	return pass, nil
 }

@@ -92,6 +92,11 @@ func NotesDir() string {
 	return filepath.Join(ConfigDir(), "notes")
 }
 
+// SSHKeys returns the configured SSH key paths for kvlt identity resolution.
+func SSHKeys() []string {
+	return viper.GetStringSlice("ssh_keys")
+}
+
 func init() {
 	cobra.OnInitialize(initConfig, initLogger)
 
@@ -102,8 +107,12 @@ func init() {
 	)
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "enable debug logging")
 	rootCmd.PersistentFlags().BoolVarP(&jsonOutput, "json", "j", false, "emit logs as JSON")
+	rootCmd.PersistentFlags().String("notes-dir", "", "notes directory")
+	rootCmd.PersistentFlags().StringSlice("ssh-key", nil, "SSH key path(s) for kvlt (repeatable)")
 
 	_ = viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
+	_ = viper.BindPFlag("notes_dir", rootCmd.PersistentFlags().Lookup("notes-dir"))
+	_ = viper.BindPFlag("ssh_keys", rootCmd.PersistentFlags().Lookup("ssh-key"))
 	_ = viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
 }
 
