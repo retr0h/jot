@@ -21,7 +21,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -50,25 +49,12 @@ var noteCatCmd = &cobra.Command{
 			slug = picked
 		}
 
-		note, err := jot.FindNote(notesDir, slug)
+		body, err := jot.CatNote(notesDir, ConfigDir(), SSHKeys(), slug, cli.PassphrasePrompt)
 		if err != nil {
 			return err
 		}
 
-		if note.Secure {
-			store, err := jot.NewSecureStore(ConfigDir(), SSHKeys(), cli.PassphrasePrompt)
-			if err != nil {
-				return fmt.Errorf("open secure store: %w", err)
-			}
-			body, err := store.ReadNote(context.Background(), slug)
-			if err != nil {
-				return err
-			}
-			_, _ = fmt.Fprint(out, body)
-			return nil
-		}
-
-		_, _ = fmt.Fprint(out, note.Body)
+		_, _ = fmt.Fprint(out, body)
 		return nil
 	},
 }

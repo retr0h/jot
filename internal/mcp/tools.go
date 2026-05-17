@@ -23,31 +23,14 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/retr0h/jot/internal/jot"
 )
-
-// secureNoteBody retrieves the decrypted body of a secure note from kvlt.
-// Returns an error string if decryption fails (e.g. passphrase-protected key
-// with no TTY available). MCP requires passphrase-free SSH keys for secure
-// note access.
-func (s *Server) secureNoteBody(
-	ctx context.Context,
-	slug string,
-) (string, error) {
-	store, err := jot.NewSecureStore(s.configDir, s.sshKeys, nil)
-	if err != nil {
-		return "", fmt.Errorf("open secure store: %w", err)
-	}
-	return store.ReadNote(ctx, slug)
-}
 
 // registerTools wires all jot MCP tools into the SDK server.
 func (s *Server) registerTools() {
@@ -180,42 +163,23 @@ func (s *Server) handleListNotes(
 }
 
 func (s *Server) handleGetNote(
-	ctx context.Context,
+	_ context.Context,
 	_ *mcpsdk.CallToolRequest,
 	args getNoteArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
 	if args.Slug == "" {
 		return textResult("error: slug is required"), nil, nil
 	}
-	note, err := s.notes.FindNote(s.notesDir, args.Slug)
+
+	body, err := jot.CatNote(s.notesDir, s.configDir, s.sshKeys, args.Slug, nil)
 	if err != nil {
 		return textResult(fmt.Sprintf("error: get note %q: %v", args.Slug, err)), nil, nil
 	}
-
-	if note.Secure {
-		body, err := s.secureNoteBody(ctx, args.Slug)
-		if err != nil {
-			return textResult(
-				fmt.Sprintf(
-					"error: decrypt note %q: %v (MCP requires passphrase-free SSH keys)",
-					args.Slug,
-					err,
-				),
-			), nil, nil
-		}
-		return textResult(body), nil, nil
-	}
-
-	notePath := filepath.Join(s.notesDir, args.Slug+".md")
-	content, err := os.ReadFile(notePath)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: read note file %q: %v", args.Slug, err)), nil, nil
-	}
-	return textResult(string(content)), nil, nil
+	return textResult(body), nil, nil
 }
 
 func (s *Server) handleCreateNote(
-	ctx context.Context,
+	_ context.Context,
 	_ *mcpsdk.CallToolRequest,
 	args createNoteArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
@@ -237,7 +201,7 @@ func (s *Server) handleCreateNote(
 		if err != nil {
 			return textResult(fmt.Sprintf("error: open secure store: %v", err)), nil, nil
 		}
-		if err := store.WriteNote(ctx, slug, body); err != nil {
+		if err := store.WriteNote(context.Background(), slug, body); err != nil {
 			return textResult(fmt.Sprintf("error: encrypt note: %v", err)), nil, nil
 		}
 		scaffold := fmt.Sprintf(
@@ -365,36 +329,16 @@ func (s *Server) handleRenameNote(
 		return textResult("error: title is required"), nil, nil
 	}
 
-	oldSlug := args.Slug
-	newSlug := jot.NewSlug(args.Title, time.Now())
-
-	oldPath := filepath.Join(s.notesDir, oldSlug+".md")
-	newPath := filepath.Join(s.notesDir, newSlug+".md")
-
-	content, err := os.ReadFile(oldPath)
+	newSlug, err := jot.RenameNote(s.notesDir, args.Slug, args.Title)
 	if err != nil {
-		return textResult(fmt.Sprintf("error: read note %q: %v", oldSlug, err)), nil, nil
+		return textResult(fmt.Sprintf("error: rename note: %v", err)), nil, nil
 	}
 
-	updated := rewriteNoteTitle(string(content), args.Title)
-
-	if err := os.MkdirAll(filepath.Dir(newPath), 0o700); err != nil {
-		return textResult(fmt.Sprintf("error: create dir: %v", err)), nil, nil
-	}
-	if err := os.WriteFile(newPath, []byte(updated), 0o600); err != nil {
-		return textResult(fmt.Sprintf("error: write renamed note: %v", err)), nil, nil
-	}
-	if err := os.Remove(oldPath); err != nil {
-		return textResult(fmt.Sprintf("error: remove old note: %v", err)), nil, nil
-	}
-
-	_ = rewriteWikiLinks(s.notesDir, oldSlug, newSlug)
-
-	return textResult(fmt.Sprintf(`{"old_slug": %q, "new_slug": %q}`, oldSlug, newSlug)), nil, nil
+	return textResult(fmt.Sprintf(`{"old_slug": %q, "new_slug": %q}`, args.Slug, newSlug)), nil, nil
 }
 
 func (s *Server) handleEncryptNote(
-	ctx context.Context,
+	_ context.Context,
 	_ *mcpsdk.CallToolRequest,
 	args encryptNoteArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
@@ -402,38 +346,15 @@ func (s *Server) handleEncryptNote(
 		return textResult("error: slug is required"), nil, nil
 	}
 
-	note, err := s.notes.FindNote(s.notesDir, args.Slug)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: find note %q: %v", args.Slug, err)), nil, nil
-	}
-	if note.Secure {
-		return textResult(fmt.Sprintf("error: note %q is already encrypted", args.Slug)), nil, nil
-	}
-
-	store, err := jot.NewSecureStore(s.configDir, s.sshKeys, nil)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: open secure store: %v", err)), nil, nil
-	}
-
-	if err := store.WriteNote(ctx, args.Slug, note.Body); err != nil {
-		return textResult(fmt.Sprintf("error: encrypt note: %v", err)), nil, nil
-	}
-
-	scaffold := fmt.Sprintf(
-		"---\ntitle: %q\ntags: [%s]\ncreated: %s\nsecure: true\n---\n",
-		note.Title,
-		formatTags(note.Tags),
-		note.Created,
-	)
-	if err := os.WriteFile(note.Path, []byte(scaffold), 0o600); err != nil {
-		return textResult(fmt.Sprintf("error: rewrite note file: %v", err)), nil, nil
+	if err := jot.EncryptNote(s.notesDir, s.configDir, s.sshKeys, args.Slug, nil); err != nil {
+		return textResult(fmt.Sprintf("error: encrypt note %q: %v", args.Slug, err)), nil, nil
 	}
 
 	return textResult(fmt.Sprintf(`{"encrypted": %q}`, args.Slug)), nil, nil
 }
 
 func (s *Server) handleDecryptNote(
-	ctx context.Context,
+	_ context.Context,
 	_ *mcpsdk.CallToolRequest,
 	args decryptNoteArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
@@ -441,37 +362,8 @@ func (s *Server) handleDecryptNote(
 		return textResult("error: slug is required"), nil, nil
 	}
 
-	note, err := s.notes.FindNote(s.notesDir, args.Slug)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: find note %q: %v", args.Slug, err)), nil, nil
-	}
-	if !note.Secure {
-		return textResult(fmt.Sprintf("error: note %q is not encrypted", args.Slug)), nil, nil
-	}
-
-	store, err := jot.NewSecureStore(s.configDir, s.sshKeys, nil)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: open secure store: %v", err)), nil, nil
-	}
-
-	body, err := store.ReadNote(ctx, args.Slug)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: decrypt note: %v", err)), nil, nil
-	}
-
-	content := fmt.Sprintf(
-		"---\ntitle: %q\ntags: [%s]\ncreated: %s\n---\n\n%s",
-		note.Title,
-		formatTags(note.Tags),
-		note.Created,
-		body,
-	)
-	if err := os.WriteFile(note.Path, []byte(content), 0o600); err != nil {
-		return textResult(fmt.Sprintf("error: rewrite note file: %v", err)), nil, nil
-	}
-
-	if err := store.DeleteNote(ctx, args.Slug); err != nil {
-		return textResult(fmt.Sprintf("error: remove from secure store: %v", err)), nil, nil
+	if err := jot.DecryptNote(s.notesDir, s.configDir, s.sshKeys, args.Slug, nil); err != nil {
+		return textResult(fmt.Sprintf("error: decrypt note %q: %v", args.Slug, err)), nil, nil
 	}
 
 	return textResult(fmt.Sprintf(`{"decrypted": %q}`, args.Slug)), nil, nil
@@ -498,59 +390,6 @@ func (s *Server) handleTaskDone(
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-
-func rewriteNoteTitle(content string, newTitle string) string {
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(line, "title:") {
-			lines[i] = fmt.Sprintf("title: %q", newTitle)
-			continue
-		}
-		if strings.HasPrefix(line, "# ") {
-			lines[i] = "# " + newTitle
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func rewriteWikiLinks(
-	notesDir string,
-	oldSlug string,
-	newSlug string,
-) error {
-	return filepath.WalkDir(notesDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
-			return err
-		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		updated := strings.ReplaceAll(
-			string(content),
-			"[["+oldSlug+"]]",
-			"[["+newSlug+"]]",
-		)
-		if updated != string(content) {
-			_ = os.WriteFile(path, []byte(updated), 0o600)
-		}
-		return nil
-	})
-}
-
-func formatTags(tags []string) string {
-	if len(tags) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for i, t := range tags {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(t)
-	}
-	return b.String()
-}
 
 // textResult wraps a string as an MCP CallToolResult with a single TextContent
 // block — the canonical response shape for every tool.

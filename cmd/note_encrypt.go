@@ -21,10 +21,7 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -43,7 +40,6 @@ var noteEncryptCmd = &cobra.Command{
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
-		cfgDir := ConfigDir()
 
 		slug := noteEncryptSlugFlag
 		if slug == "" {
@@ -54,31 +50,8 @@ var noteEncryptCmd = &cobra.Command{
 			slug = picked
 		}
 
-		note, err := jot.FindNote(notesDir, slug)
-		if err != nil {
+		if err := jot.EncryptNote(notesDir, ConfigDir(), SSHKeys(), slug, cli.PassphrasePrompt); err != nil {
 			return err
-		}
-		if note.Secure {
-			return fmt.Errorf("note %q is already encrypted", slug)
-		}
-
-		store, err := jot.NewSecureStore(cfgDir, SSHKeys(), cli.PassphrasePrompt)
-		if err != nil {
-			return fmt.Errorf("open secure store: %w", err)
-		}
-
-		if err := store.WriteNote(context.Background(), slug, note.Body); err != nil {
-			return err
-		}
-
-		scaffold := fmt.Sprintf(
-			"---\ntitle: %q\ntags: [%s]\ncreated: %s\nsecure: true\n---\n",
-			note.Title,
-			formatTags(note.Tags),
-			note.Created,
-		)
-		if err := os.WriteFile(note.Path, []byte(scaffold), 0o600); err != nil {
-			return fmt.Errorf("rewrite note file: %w", err)
 		}
 
 		if repo, err := gitops.OpenRepo(notesDir); err == nil {
@@ -92,20 +65,6 @@ var noteEncryptCmd = &cobra.Command{
 		cli.Print(out, cli.Success(out, "encrypted: "+cli.Accent(out, slug)))
 		return nil
 	},
-}
-
-func formatTags(tags []string) string {
-	if len(tags) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for i, t := range tags {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(t)
-	}
-	return b.String()
 }
 
 func init() {

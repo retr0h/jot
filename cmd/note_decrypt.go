@@ -21,9 +21,7 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -42,7 +40,6 @@ var noteDecryptCmd = &cobra.Command{
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
-		cfgDir := ConfigDir()
 
 		slug := noteDecryptSlugFlag
 		if slug == "" {
@@ -53,37 +50,8 @@ var noteDecryptCmd = &cobra.Command{
 			slug = picked
 		}
 
-		note, err := jot.FindNote(notesDir, slug)
-		if err != nil {
+		if err := jot.DecryptNote(notesDir, ConfigDir(), SSHKeys(), slug, cli.PassphrasePrompt); err != nil {
 			return err
-		}
-		if !note.Secure {
-			return fmt.Errorf("note %q is not encrypted", slug)
-		}
-
-		store, err := jot.NewSecureStore(cfgDir, SSHKeys(), cli.PassphrasePrompt)
-		if err != nil {
-			return fmt.Errorf("open secure store: %w", err)
-		}
-
-		body, err := store.ReadNote(context.Background(), slug)
-		if err != nil {
-			return err
-		}
-
-		content := fmt.Sprintf(
-			"---\ntitle: %q\ntags: [%s]\ncreated: %s\n---\n\n%s",
-			note.Title,
-			formatTags(note.Tags),
-			note.Created,
-			body,
-		)
-		if err := os.WriteFile(note.Path, []byte(content), 0o600); err != nil {
-			return fmt.Errorf("rewrite note file: %w", err)
-		}
-
-		if err := store.DeleteNote(context.Background(), slug); err != nil {
-			return fmt.Errorf("remove from secure store: %w", err)
 		}
 
 		if repo, err := gitops.OpenRepo(notesDir); err == nil {
