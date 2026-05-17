@@ -23,16 +23,12 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/retr0h/jot/internal/jot"
 )
 
-// registerTools wires all 8 jot MCP tools into the SDK server.
+// registerTools wires all jot MCP tools into the SDK server.
 func (s *Server) registerTools() {
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_notes",
@@ -41,12 +37,12 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "get_note",
-		Description: "Read the full markdown content of a note by its slug.",
+		Description: "Read the full markdown content of a note by its slug. Transparently decrypts secure notes.",
 	}, s.handleGetNote)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_note",
-		Description: "Create a new markdown note with YAML front-matter scaffold.",
+		Description: "Create a new markdown note with YAML front-matter scaffold. Supports secure (encrypted) creation.",
 	}, s.handleCreateNote)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -60,9 +56,29 @@ func (s *Server) registerTools() {
 	}, s.handleSearchNotes)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "rename_note",
+		Description: "Rename a note (rewrite title, slug, and all [[wikilinks]] referencing it).",
+	}, s.handleRenameNote)
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "encrypt_note",
+		Description: "Encrypt an existing plaintext note via kvlt. Requires passphrase-free SSH keys.",
+	}, s.handleEncryptNote)
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "decrypt_note",
+		Description: "Decrypt a secure note back to plaintext on disk. Requires passphrase-free SSH keys.",
+	}, s.handleDecryptNote)
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_tasks",
 		Description: `List tasks filtered by status ("open", "done", or "all") and optionally by tag.`,
 	}, s.handleListTasks)
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "task_done",
+		Description: "Mark a task as complete by appending done:YYYY-MM-DD to the @task marker.",
+	}, s.handleTaskDone)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "tasks_due",
@@ -86,8 +102,9 @@ type getNoteArgs struct {
 }
 
 type createNoteArgs struct {
-	Title   string `json:"title"   jsonschema:"Note title (used to derive the slug)."`
-	Content string `json:"content" jsonschema:"Markdown content of the note (optional; scaffold used when empty)."`
+	Title   string `json:"title"            jsonschema:"Note title (used to derive the slug)."`
+	Content string `json:"content"          jsonschema:"Markdown content of the note (optional; scaffold used when empty)."`
+	Secure  bool   `json:"secure,omitempty" jsonschema:"When true, encrypt the note body via kvlt (requires passphrase-free SSH keys)."`
 }
 
 type deleteNoteArgs struct {
@@ -98,9 +115,27 @@ type searchNotesArgs struct {
 	Query string `json:"query" jsonschema:"Case-insensitive substring to search for."`
 }
 
+type renameNoteArgs struct {
+	Slug  string `json:"slug"  jsonschema:"Current note slug to rename."`
+	Title string `json:"title" jsonschema:"New title for the note (slug is derived from this)."`
+}
+
+type encryptNoteArgs struct {
+	Slug string `json:"slug" jsonschema:"Note slug to encrypt."`
+}
+
+type decryptNoteArgs struct {
+	Slug string `json:"slug" jsonschema:"Note slug to decrypt."`
+}
+
 type listTasksArgs struct {
 	Status string `json:"status,omitempty" jsonschema:"Task status filter: open, done, or all (default all)."`
 	Tag    string `json:"tag,omitempty"    jsonschema:"Filter to tasks carrying this tag (optional)."`
+}
+
+type taskDoneArgs struct {
+	Slug string `json:"slug" jsonschema:"Note slug containing the task."`
+	Desc string `json:"desc" jsonschema:"Task description (substring match, case-insensitive)."`
 }
 
 type tasksDueArgs struct {
@@ -116,7 +151,7 @@ func (s *Server) handleListNotes(
 	_ *mcpsdk.CallToolRequest,
 	args listNotesArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
-	notes, err := s.notes.ListNotes(s.notesDir, args.Tag)
+	notes, err := s.store.ListNotes(args.Tag)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
@@ -131,18 +166,12 @@ func (s *Server) handleGetNote(
 	if args.Slug == "" {
 		return textResult("error: slug is required"), nil, nil
 	}
-	note, err := s.notes.FindNote(s.notesDir, args.Slug)
+
+	body, err := s.store.CatNote(args.Slug)
 	if err != nil {
 		return textResult(fmt.Sprintf("error: get note %q: %v", args.Slug, err)), nil, nil
 	}
-	// Read raw file content so the agent sees the full note including front-matter.
-	notePath := filepath.Join(s.notesDir, args.Slug+".md")
-	content, err := os.ReadFile(notePath)
-	if err != nil {
-		return textResult(fmt.Sprintf("error: read note file %q: %v", args.Slug, err)), nil, nil
-	}
-	_ = note
-	return textResult(string(content)), nil, nil
+	return textResult(body), nil, nil
 }
 
 func (s *Server) handleCreateNote(
@@ -154,23 +183,14 @@ func (s *Server) handleCreateNote(
 		return textResult("error: title is required"), nil, nil
 	}
 
-	slug := jot.NewSlug(args.Title, time.Now())
-
-	if err := os.MkdirAll(s.notesDir, 0o700); err != nil {
-		return textResult(fmt.Sprintf("error: create notes dir: %v", err)), nil, nil
+	slug, notePath, err := s.store.CreateNote(args.Title, args.Content, args.Secure)
+	if err != nil {
+		return textResult(fmt.Sprintf("error: create note: %v", err)), nil, nil
 	}
 
-	notePath := filepath.Join(s.notesDir, slug+".md")
-	content := args.Content
-	if content == "" {
-		content = jot.ScaffoldFrontmatter(args.Title, time.Now().Format("2006-01-02"))
-	}
-
-	if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
-		return textResult(fmt.Sprintf("error: write note file: %v", err)), nil, nil
-	}
-
-	return textResult(fmt.Sprintf(`{"slug": %q, "path": %q}`, slug, notePath)), nil, nil
+	return textResult(
+		fmt.Sprintf(`{"slug": %q, "path": %q, "secure": %t}`, slug, notePath, args.Secure),
+	), nil, nil
 }
 
 func (s *Server) handleDeleteNote(
@@ -182,8 +202,7 @@ func (s *Server) handleDeleteNote(
 		return textResult("error: slug is required"), nil, nil
 	}
 
-	notePath := filepath.Join(s.notesDir, args.Slug+".md")
-	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
+	if err := s.store.DeleteNote(args.Slug); err != nil {
 		return textResult(fmt.Sprintf("error: delete note %q: %v", args.Slug, err)), nil, nil
 	}
 
@@ -198,11 +217,63 @@ func (s *Server) handleSearchNotes(
 	if args.Query == "" {
 		return textResult("error: query is required"), nil, nil
 	}
-	results, err := s.notes.SearchNotes(s.notesDir, args.Query)
+	results, err := s.store.SearchNotes(args.Query)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
 	return textResult(jsonOrErr(results)), nil, nil
+}
+
+func (s *Server) handleRenameNote(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args renameNoteArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+	if args.Title == "" {
+		return textResult("error: title is required"), nil, nil
+	}
+
+	newSlug, err := s.store.RenameNote(args.Slug, args.Title)
+	if err != nil {
+		return textResult(fmt.Sprintf("error: rename note: %v", err)), nil, nil
+	}
+
+	return textResult(fmt.Sprintf(`{"old_slug": %q, "new_slug": %q}`, args.Slug, newSlug)), nil, nil
+}
+
+func (s *Server) handleEncryptNote(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args encryptNoteArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+
+	if err := s.store.EncryptNote(args.Slug); err != nil {
+		return textResult(fmt.Sprintf("error: encrypt note %q: %v", args.Slug, err)), nil, nil
+	}
+
+	return textResult(fmt.Sprintf(`{"encrypted": %q}`, args.Slug)), nil, nil
+}
+
+func (s *Server) handleDecryptNote(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args decryptNoteArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+
+	if err := s.store.DecryptNote(args.Slug); err != nil {
+		return textResult(fmt.Sprintf("error: decrypt note %q: %v", args.Slug, err)), nil, nil
+	}
+
+	return textResult(fmt.Sprintf(`{"decrypted": %q}`, args.Slug)), nil, nil
 }
 
 func (s *Server) handleListTasks(
@@ -214,11 +285,32 @@ func (s *Server) handleListTasks(
 	if status == "" {
 		status = "all"
 	}
-	tasks, err := s.tasks.AllTasks(s.notesDir, status, args.Tag)
+	tasks, err := s.store.AllTasks(status, args.Tag)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
 	return textResult(jsonOrErr(tasks)), nil, nil
+}
+
+func (s *Server) handleTaskDone(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args taskDoneArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+	if args.Desc == "" {
+		return textResult("error: desc is required"), nil, nil
+	}
+
+	if err := s.store.MarkTaskDone(args.Slug, args.Desc); err != nil {
+		return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
+	}
+
+	return textResult(
+		fmt.Sprintf(`{"slug": %q, "task": %q, "done": true}`, args.Slug, args.Desc),
+	), nil, nil
 }
 
 func (s *Server) handleTasksDue(
@@ -244,7 +336,7 @@ func (s *Server) handleTasksDue(
 		return textResult("error: period must be today, this_week, or this_month"), nil, nil
 	}
 
-	tasks, err := s.tasks.TasksDue(s.notesDir, from, to)
+	tasks, err := s.store.TasksDue(from, to)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
@@ -256,7 +348,7 @@ func (s *Server) handleListTags(
 	_ *mcpsdk.CallToolRequest,
 	_ listTagsArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
-	tags, err := s.tags.AllTags(s.notesDir)
+	tags, err := s.store.AllTags()
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}

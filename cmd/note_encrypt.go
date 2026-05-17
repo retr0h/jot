@@ -1,36 +1,32 @@
 // Copyright (c) 2026 John Dewey
-
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to
-// deal in the Software without restriction, including without limitation the
-// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-// sell copies of the Software, and to permit persons to whom the Software is
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-// DEALINGS IN THE SOFTWARE.
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
 	"github.com/retr0h/jot/internal/gitops"
-	"github.com/retr0h/jot/internal/jot"
 )
 
 var noteEncryptSlugFlag string
@@ -43,7 +39,6 @@ var noteEncryptCmd = &cobra.Command{
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
-		cfgDir := ConfigDir()
 
 		slug := noteEncryptSlugFlag
 		if slug == "" {
@@ -54,31 +49,8 @@ var noteEncryptCmd = &cobra.Command{
 			slug = picked
 		}
 
-		note, err := jot.FindNote(notesDir, slug)
-		if err != nil {
+		if err := svc.EncryptNote(slug); err != nil {
 			return err
-		}
-		if note.Secure {
-			return fmt.Errorf("note %q is already encrypted", slug)
-		}
-
-		store, err := jot.NewSecureStore(cfgDir, SSHKeys(), cli.PassphrasePrompt)
-		if err != nil {
-			return fmt.Errorf("open secure store: %w", err)
-		}
-
-		if err := store.WriteNote(context.Background(), slug, note.Body); err != nil {
-			return err
-		}
-
-		scaffold := fmt.Sprintf(
-			"---\ntitle: %q\ntags: [%s]\ncreated: %s\nsecure: true\n---\n",
-			note.Title,
-			formatTags(note.Tags),
-			note.Created,
-		)
-		if err := os.WriteFile(note.Path, []byte(scaffold), 0o600); err != nil {
-			return fmt.Errorf("rewrite note file: %w", err)
 		}
 
 		if repo, err := gitops.OpenRepo(notesDir); err == nil {
@@ -92,20 +64,6 @@ var noteEncryptCmd = &cobra.Command{
 		cli.Print(out, cli.Success(out, "encrypted: "+cli.Accent(out, slug)))
 		return nil
 	},
-}
-
-func formatTags(tags []string) string {
-	if len(tags) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for i, t := range tags {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(t)
-	}
-	return b.String()
 }
 
 func init() {

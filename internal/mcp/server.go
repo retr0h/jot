@@ -20,16 +20,6 @@
 
 // Package mcp is the Model Context Protocol server for jot. Exposes every
 // note, task, and tag operation as an MCP tool an LLM agent can call.
-//
-// Architecturally: this package talks to the notes directory on disk through
-// narrow consumer-seam interfaces (noteLister, taskLister, tagLister). No
-// SQLite is involved. The agent spawns `jot mcp start` as a subprocess, which
-// pipes JSON-RPC over stdin/stdout. When the agent disconnects the process
-// exits cleanly.
-//
-// Each tool is a thin adapter: extract params from CallToolParams.Arguments,
-// call the appropriate interface method or file operation, return a TextContent
-// result with the JSON response.
 package mcp
 
 import (
@@ -47,90 +37,49 @@ import (
 // version is the MCP implementation version surfaced to agents on initialize.
 const version = "0.1.0"
 
-// ─── consumer-seam interfaces ─────────────────────────────────────────────────
+// ─── consumer-seam interface ─────────────────────────────────────────────────
 
-// noteLister reads notes from the filesystem.
-type noteLister interface {
-	ListNotes(notesDir string, tagFilter string) ([]*jot.Note, error)
-	SearchNotes(notesDir string, query string) ([]*jot.Note, error)
-	FindNote(notesDir string, slug string) (*jot.Note, error)
-}
-
-// taskLister reads tasks aggregated across note files.
-type taskLister interface {
-	AllTasks(notesDir string, status string, tagFilter string) ([]jot.Task, error)
-	TasksDue(notesDir string, from time.Time, to time.Time) ([]jot.Task, error)
-}
-
-// tagLister enumerates tags across the notes directory.
-type tagLister interface {
-	AllTags(notesDir string) ([]string, error)
-}
-
-// ─── fileNotesProvider ───────────────────────────────────────────────────────
-
-// fileNotesProvider satisfies noteLister, taskLister, and tagLister by
-// delegating directly to the jot package functions that scan the filesystem.
-type fileNotesProvider struct{}
-
-func (fileNotesProvider) ListNotes(notesDir string, tagFilter string) ([]*jot.Note, error) {
-	return jot.ListNotes(notesDir, tagFilter)
-}
-
-func (fileNotesProvider) SearchNotes(notesDir string, query string) ([]*jot.Note, error) {
-	return jot.SearchNotes(notesDir, query)
-}
-
-func (fileNotesProvider) FindNote(notesDir string, slug string) (*jot.Note, error) {
-	return jot.FindNote(notesDir, slug)
-}
-
-func (fileNotesProvider) AllTasks(
-	notesDir string,
-	status string,
-	tagFilter string,
-) ([]jot.Task, error) {
-	return jot.AllTasks(notesDir, status, tagFilter)
-}
-
-func (fileNotesProvider) TasksDue(
-	notesDir string,
-	from time.Time,
-	to time.Time,
-) ([]jot.Task, error) {
-	return jot.TasksDue(notesDir, from, to)
-}
-
-func (fileNotesProvider) AllTags(notesDir string) ([]string, error) {
-	return jot.AllTags(notesDir)
+// Store is the narrow consumer-seam interface this MCP server depends on.
+// Concrete *jot.Service satisfies it structurally — the compiler verifies
+// at the assignment site in New().
+type Store interface {
+	ListNotes(tagFilter string) ([]*jot.Note, error)
+	SearchNotes(query string) ([]*jot.Note, error)
+	FindNoteBySlug(slug string) (*jot.Note, error)
+	CatNote(slug string) (string, error)
+	CreateNote(title string, content string, secure bool) (string, string, error)
+	DeleteNote(slug string) error
+	EncryptNote(slug string) error
+	DecryptNote(slug string) error
+	RenameNote(oldSlug string, newTitle string) (string, error)
+	AllTasks(status string, tagFilter string) ([]jot.Task, error)
+	TasksDue(from time.Time, to time.Time) ([]jot.Task, error)
+	MarkTaskDone(slug string, desc string) error
+	AllTags() ([]string, error)
 }
 
 // ─── Config and Server ───────────────────────────────────────────────────────
 
-// Config bundles the runtime inputs for a jot MCP server. NotesDir is
-// required; Logger defaults to text-on-stderr when nil.
+// Config bundles the runtime inputs for a jot MCP server.
 type Config struct {
-	NotesDir string
-	Logger   *slog.Logger
+	Store  Store
+	Logger *slog.Logger
 }
 
-// Server is the jot MCP server. Holds the notes directory used by every tool
-// handler, plus the underlying mcpsdk.Server. Constructed via New; the wire
-// is driven by Run.
+// Server is the jot MCP server. Holds a Store (the narrow consumer
+// surface) used by every tool handler, plus the underlying mcpsdk.Server.
+// Constructed via New; the wire is driven by Run.
 type Server struct {
-	mcp      *mcpsdk.Server
-	notesDir string
-	notes    noteLister
-	tasks    taskLister
-	tags     tagLister
-	logger   *slog.Logger
+	mcp    *mcpsdk.Server
+	store  Store
+	logger *slog.Logger
 }
 
-// New creates an MCP server, registers all 8 tools, and returns a
-// ready-to-Run Server. No database connection is opened.
+// New creates an MCP server, registers all tools, and returns a
+// ready-to-Run Server.
 func New(cfg Config) (*Server, error) {
-	if cfg.NotesDir == "" {
-		return nil, fmt.Errorf("mcp: NotesDir required")
+	if cfg.Store == nil {
+		return nil, fmt.Errorf("mcp: Store required")
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -146,22 +95,17 @@ func New(cfg Config) (*Server, error) {
 		},
 	)
 
-	provider := fileNotesProvider{}
 	s := &Server{
-		mcp:      mcpSrv,
-		notesDir: cfg.NotesDir,
-		notes:    provider,
-		tasks:    provider,
-		tags:     provider,
-		logger:   cfg.Logger.With(slog.String("subsystem", "mcp")),
+		mcp:    mcpSrv,
+		store:  cfg.Store,
+		logger: cfg.Logger.With(slog.String("subsystem", "mcp")),
 	}
 	s.registerTools()
 	return s, nil
 }
 
 // Run wires the MCP server to stdin/stdout and blocks until the transport
-// closes (the spawning agent disconnects) or ctx cancels. Returns nil on
-// clean shutdown.
+// closes or ctx cancels.
 func (s *Server) Run(ctx context.Context) error {
 	s.logger.Info(
 		"running",
@@ -170,8 +114,7 @@ func (s *Server) Run(ctx context.Context) error {
 	return s.mcp.Run(ctx, &mcpsdk.StdioTransport{})
 }
 
-// Close is a no-op; retained for interface compatibility with callers that
-// defer s.Close(). Returns nil.
+// Close is a no-op; retained for interface compatibility.
 func (s *Server) Close() error {
 	return nil
 }
@@ -193,6 +136,27 @@ without .md), a title, and optional tags in YAML front-matter.
 - create_note   write a new markdown note with front-matter scaffold
 - delete_note   remove a note file from disk
 - search_notes  case-insensitive substring search across note titles and bodies
+- rename_note   rename a note and rewrite all [[wikilinks]] referencing it
+
+## Scratch
+
+The note with slug "scratch" is a persistent scratch pad. It always exists
+(created by jot init). Use it for quick dumps — get_note with slug "scratch"
+to read it, or create_note won't overwrite it.
+
+## Secure Notes
+
+Notes with secure: true in front-matter are encrypted via kvlt (age + SSH keys).
+get_note transparently decrypts secure notes. create_note accepts a secure flag
+to encrypt the body on creation.
+
+- encrypt_note  encrypt an existing plaintext note (body moves to kvlt)
+- decrypt_note  decrypt a secure note back to plaintext on disk
+
+IMPORTANT: Secure note operations require passphrase-free SSH keys configured in
+the ssh_keys config option. There is no TTY available for interactive passphrase
+prompts over MCP. If decryption fails, advise the user to configure a
+passphrase-free key in their jot.yaml ssh_keys list.
 
 ## Tasks
 
@@ -200,6 +164,7 @@ Tasks are @task markers embedded in notes. They carry an optional due date
 and optional inline #tags.
 
 - list_tasks    list tasks filtered by status (open/done/all) and tag
+- task_done     mark a task as complete (appends done:YYYY-MM-DD)
 - tasks_due     list open tasks due today, this_week, or this_month
 
 ## Tags
