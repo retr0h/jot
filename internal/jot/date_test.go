@@ -71,6 +71,28 @@ func TestParseDate(t *testing.T) {
 			want:  "2026-05-18",
 		},
 		{
+			// "next friday" from Thursday → skip this coming Friday, go to next week's.
+			name:  "next friday from thursday",
+			input: "next friday",
+			want:  "2026-05-22",
+		},
+		{
+			// Thursday → same weekday goes to next week.
+			name:  "thursday from thursday wraps to next week",
+			input: "thursday",
+			want:  "2026-05-21",
+		},
+		{
+			name:  "abbreviated day name",
+			input: "wed",
+			want:  "2026-05-20",
+		},
+		{
+			name:    "next with invalid day",
+			input:   "next invalid",
+			wantErr: true,
+		},
+		{
 			name:    "invalid input",
 			input:   "invalid",
 			wantErr: true,

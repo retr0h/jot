@@ -257,6 +257,54 @@ func TestReadAllNotes(t *testing.T) {
 	}
 }
 
+// ─── matchStatus ────────────────────────────────────────────────────────────
+
+func TestMatchStatus(t *testing.T) {
+	t.Parallel()
+
+	setupDir := func(t *testing.T) string {
+		t.Helper()
+		dir := t.TempDir()
+		writeNote(t, dir, "mixed", `---
+title: "Mixed"
+tags: []
+created: 2026-05-14
+---
+
+- [ ] open task #work
+- [x] done task #work
+`)
+		return dir
+	}
+
+	tests := []struct {
+		name      string
+		status    string
+		wantCount int
+	}{
+		{name: "empty status means all", status: "", wantCount: 2},
+		{name: "all returns everything", status: "all", wantCount: 2},
+		{name: "open returns open only", status: "open", wantCount: 1},
+		{name: "done returns done only", status: "done", wantCount: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := setupDir(t)
+			svc := newSvc(dir)
+
+			got, err := svc.AllTasks(tt.status, "")
+			if err != nil {
+				t.Fatalf("AllTasks: %v", err)
+			}
+			if len(got) != tt.wantCount {
+				t.Errorf("count = %d, want %d", len(got), tt.wantCount)
+			}
+		})
+	}
+}
+
 // ─── ListNotes ───────────────────────────────────────────────────────────────
 
 func TestListNotes(t *testing.T) {
