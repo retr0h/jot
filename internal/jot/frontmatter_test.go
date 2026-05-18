@@ -88,6 +88,21 @@ private content
 			wantBody:  "",
 		},
 		{
+			name: "tags with spaces are normalized to hyphens",
+			content: `---
+title: "Spaced Tags"
+tags: [code review, sprint planning]
+created: 2026-05-14
+---
+
+Body.
+`,
+			wantTitle:   "Spaced Tags",
+			wantTags:    []string{"code-review", "sprint-planning"},
+			wantCreated: "2026-05-14",
+			wantBody:    "Body.",
+		},
+		{
 			name: "unclosed delimiter treated as no frontmatter",
 			content: `---
 title: "Unclosed"

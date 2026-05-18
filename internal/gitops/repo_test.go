@@ -191,6 +191,19 @@ func TestRepo_CommitFile(t *testing.T) {
 			wantCommits: 1,
 			wantMessage: "docs: initial",
 		},
+		{
+			name: "commits modification to existing file",
+			setup: func(t *testing.T, dir string) {
+				writeFile(t, dir, "a.md", "# A\n")
+				r, _ := gitops.InitRepo(dir)
+				_ = r.CommitFile("a.md", "docs: initial")
+				writeFile(t, dir, "a.md", "# A updated\n")
+			},
+			filename:    "a.md",
+			message:     "docs: update a",
+			wantCommits: 2,
+			wantMessage: "docs: update a",
+		},
 	}
 
 	for _, tt := range tests {
@@ -333,6 +346,30 @@ func TestRepo_Diff(t *testing.T) {
 			path:      "note.md",
 			wantEmpty: true,
 		},
+		{
+			name: "empty path shows all changed files",
+			setup: func(t *testing.T, r *gitops.Repo, dir string) {
+				writeFile(t, dir, "a.md", "# A\n")
+				writeFile(t, dir, "b.md", "# B\n")
+				_ = r.Commit("docs: initial")
+				writeFile(t, dir, "a.md", "# A modified\n")
+				writeFile(t, dir, "b.md", "# B modified\n")
+			},
+			path:      "",
+			wantEmpty: false,
+		},
+		{
+			name: "path filters to specific file only",
+			setup: func(t *testing.T, r *gitops.Repo, dir string) {
+				writeFile(t, dir, "a.md", "# A\n")
+				writeFile(t, dir, "b.md", "# B\n")
+				_ = r.Commit("docs: initial")
+				writeFile(t, dir, "a.md", "# A changed\n")
+				writeFile(t, dir, "b.md", "# B changed\n")
+			},
+			path:      "a.md",
+			wantEmpty: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -356,6 +393,135 @@ func TestRepo_Diff(t *testing.T) {
 			}
 			if !tt.wantEmpty && got == "" {
 				t.Error("expected non-empty diff, got empty")
+			}
+		})
+	}
+}
+
+func TestOpenRepo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T) string
+		wantErr bool
+	}{
+		{
+			name: "opens existing repo",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				if _, err := gitops.InitRepo(dir); err != nil {
+					t.Fatalf("pre-init: %v", err)
+				}
+				return dir
+			},
+		},
+		{
+			name: "non-repo directory returns error",
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			wantErr: true,
+		},
+		{
+			name: "nonexistent directory returns error",
+			setup: func(t *testing.T) string {
+				return filepath.Join(t.TempDir(), "does-not-exist")
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := tt.setup(t)
+
+			r, err := gitops.OpenRepo(dir)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("OpenRepo: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("OpenRepo: unexpected error: %v", err)
+			}
+			if r == nil {
+				t.Fatal("expected non-nil Repo")
+			}
+		})
+	}
+}
+
+func TestRepo_ShowCommit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, r *gitops.Repo, dir string) string // returns hash
+		path      string
+		wantEmpty bool
+		wantErr   bool
+	}{
+		{
+			name: "shows commit by full hash prefix",
+			setup: func(t *testing.T, r *gitops.Repo, dir string) string {
+				writeFile(t, dir, "note.md", "# Hello\n")
+				_ = r.Commit("docs: initial")
+				entries, _ := r.Log("", 1)
+				return entries[0].Hash
+			},
+			wantEmpty: false,
+		},
+		{
+			name: "filters by path",
+			setup: func(t *testing.T, r *gitops.Repo, dir string) string {
+				writeFile(t, dir, "a.md", "# A\n")
+				writeFile(t, dir, "b.md", "# B\n")
+				_ = r.Commit("docs: add both")
+				entries, _ := r.Log("", 1)
+				return entries[0].Hash
+			},
+			path:      "a.md",
+			wantEmpty: false,
+		},
+		{
+			name: "nonexistent hash returns error",
+			setup: func(_ *testing.T, _ *gitops.Repo, _ string) string {
+				return "deadbeefdeadbeef"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+
+			r, err := gitops.InitRepo(dir)
+			if err != nil {
+				t.Fatalf("InitRepo: %v", err)
+			}
+
+			hash := tt.setup(t, r, dir)
+
+			got, err := r.ShowCommit(hash, tt.path)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("ShowCommit: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ShowCommit: unexpected error: %v", err)
+			}
+			if tt.wantEmpty && got != "" {
+				t.Errorf("expected empty, got %q", got)
+			}
+			if !tt.wantEmpty && got == "" {
+				t.Error("expected non-empty output")
 			}
 		})
 	}
