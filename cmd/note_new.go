@@ -23,6 +23,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -53,9 +54,13 @@ var noteNewCmd = &cobra.Command{
 		out := c.OutOrStdout()
 		rawTitle := noteNewTitleFlag
 		notesDir := NotesDir()
+		piped := cli.IsPiped()
 
 		// No title — open scratch.md.
 		if rawTitle == "" {
+			if piped {
+				return fmt.Errorf("--title is required when reading from stdin")
+			}
 			scratchPath := filepath.Join(notesDir, "scratch.md")
 			if _, err := os.Stat(scratchPath); errors.Is(err, fs.ErrNotExist) {
 				content := jot.ScaffoldFrontmatter("Scratch", time.Now().Format("2006-01-02"))
@@ -85,26 +90,49 @@ var noteNewCmd = &cobra.Command{
 			slug = subdir + "/" + slug
 		}
 
-		content := jot.ScaffoldFrontmatter(title, time.Now().Format("2006-01-02"))
-
-		// Write file.
 		dir := filepath.Dir(filepath.Join(notesDir, slug))
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("create notes dir %q: %w", dir, err)
 		}
 		notePath := filepath.Join(notesDir, slug+".md")
-		if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
-			return fmt.Errorf("write note file %q: %w", notePath, err)
-		}
 
-		if err := jot.Edit(notePath); err != nil {
-			return fmt.Errorf("edit note: %w", err)
+		if piped {
+			raw, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				return fmt.Errorf("read stdin: %w", err)
+			}
+			body := strings.TrimRight(string(raw), "\n")
+
+			if noteSecureFlag {
+				_, _, err = svc.CreateNote(title, body, true)
+				if err != nil {
+					return err
+				}
+			} else {
+				scaffold := jot.ScaffoldFrontmatter(title, time.Now().Format("2006-01-02"))
+				content := scaffold + body + "\n"
+				if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
+					return fmt.Errorf("write note file %q: %w", notePath, err)
+				}
+			}
+		} else {
+			content := jot.ScaffoldFrontmatter(title, time.Now().Format("2006-01-02"))
+			if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
+				return fmt.Errorf("write note file %q: %w", notePath, err)
+			}
+			if err := jot.Edit(notePath); err != nil {
+				return fmt.Errorf("edit note: %w", err)
+			}
 		}
 
 		// Auto-commit via gitops.
 		if repo, err := gitops.OpenRepo(notesDir); err == nil {
+			scope := "note"
+			if noteSecureFlag {
+				scope = "note(secure)"
+			}
 			msg := gitops.FormatCommitMessage(
-				fmt.Sprintf("note: add %s", filepath.Base(slug)),
+				fmt.Sprintf("%s: add %s", scope, filepath.Base(slug)),
 				"",
 			)
 			_ = repo.Commit(msg)

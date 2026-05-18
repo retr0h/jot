@@ -13,7 +13,7 @@ Terminal-first markdown notes + todos with linked tasks.
 
 Plain `.md` files with YAML frontmatter, edited in nvim with
 obsidian.nvim. Write `[[slug]]` wiki links to connect notes, embed
-`@task` markers with `#tags` to create linked todos, and let jot track
+checkbox tasks with `#tags` to create linked todos, and let jot track
 everything in git — every save is a commit. Sensitive notes encrypt at
 rest via [kvlt][] (age + SSH keys). An MCP server exposes the full
 surface to LLM agents. No database: files are the source of truth.
@@ -41,6 +41,8 @@ jot init
 jot note new --title "Sprint Planning"
 jot note new --title "network/Switch Config"
 jot note new --title "secrets/API Keys" --secure
+cat meeting.md | jot note new --title "Meeting Notes"
+echo "secret stuff" | jot note new --title "Credentials" --secure
 jot note list
 jot note search --query "kubernetes"
 jot task list
@@ -54,7 +56,7 @@ jot git log
 | -------------------- | -------------------------------------------------------- |
 | Markdown notes       | `.md` files with YAML frontmatter, edited in nvim       |
 | `[[wiki links]]`     | Cross-reference notes by slug; obsidian.nvim navigates   |
-| `@task` todos        | Due dates + `#tags`; tracked by jot, visible in nvim     |
+| Checkbox tasks       | `- [ ] desc \| due:date #tag` with due dates + tags      |
 | Git-backed           | Every edit auto-commits; `jot git log/diff/show`         |
 | Secure vaults        | `--secure` encrypts notes via [kvlt][] (age + SSH keys)  |
 | Full-text search     | Concurrent goroutine file scan — no index, no database   |
@@ -76,14 +78,13 @@ created: 2026-05-14
 
 Discussed the [[deployment-runbook]] and next steps.
 
-@task(follow up on infra ticket | due:friday) #work #ops
-@task review PR before EOD #work
-
-- [x] Send meeting summary
+- [ ] follow up on infra ticket | due:friday #work #ops
+- [ ] review PR before EOD #work
+- [x] Send meeting summary | done:2026-05-14
 - [ ] Update [[deployment-runbook]]
 ```
 
-`[[slug]]` links connect notes. `@task` markers create linked todos.
+`[[slug]]` links connect notes. Checkbox tasks create linked todos.
 `#tags` are searchable via CLI (`jot tag list`) and nvim (`<leader>jt`).
 Frontmatter `tags:` arrays are also recognized.
 
@@ -117,10 +118,10 @@ automatically when spawning the editor). Zero manual config.
 
 ### Snippets
 
-Type `@task` then Enter to expand with tab-stop placeholders:
+Type `task` then Enter to expand with tab-stop placeholders:
 
 ```
-@task(description | due:today) #tag
+- [ ] description | due:today #tag
 ```
 
 Tab jumps between placeholders. Date completions (next 7 days + day
