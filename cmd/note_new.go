@@ -68,7 +68,7 @@ var noteNewCmd = &cobra.Command{
 					return fmt.Errorf("write scratch note: %w", err)
 				}
 			}
-			if err := jot.Edit(scratchPath); err != nil {
+			if err := jot.Edit(scratchPath, ""); err != nil {
 				return fmt.Errorf("edit scratch: %w", err)
 			}
 			if repo, err := gitops.OpenRepo(notesDir); err == nil {
@@ -120,7 +120,7 @@ var noteNewCmd = &cobra.Command{
 			if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
 				return fmt.Errorf("write note file %q: %w", notePath, err)
 			}
-			if err := jot.Edit(notePath); err != nil {
+			if err := jot.Edit(notePath, ""); err != nil {
 				return fmt.Errorf("edit note: %w", err)
 			}
 		}

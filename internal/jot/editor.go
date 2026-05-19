@@ -27,10 +27,18 @@ import (
 	"path/filepath"
 )
 
-// Edit opens path in nvim. JOT_NOTES_DIR is set in the child environment
-// so editor plugins (obsidian.nvim) can locate the notes directory.
-func Edit(path string) error {
-	cmd := exec.Command("nvim", path)
+// Edit opens path in nvim. When lineNum is non-empty nvim opens at that
+// line (+N). JOT_NOTES_DIR is set in the child environment so editor
+// plugins (obsidian.nvim) can locate the notes directory.
+func Edit(
+	path string,
+	lineNum string,
+) error {
+	args := []string{path}
+	if lineNum != "" {
+		args = []string{"+" + lineNum, path}
+	}
+	cmd := exec.Command("nvim", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
