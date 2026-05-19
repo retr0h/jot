@@ -21,36 +21,51 @@
 package jot
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"testing"
 )
 
-func editArgs(
-	path string,
-	lineNum string,
-) []string {
-	if lineNum != "" {
-		return []string{"+" + lineNum, path}
-	}
-	return []string{path}
-}
+func TestEditArgs(t *testing.T) {
+	t.Parallel()
 
-// Edit opens path in nvim. When lineNum is non-empty nvim opens at that
-// line (+N). JOT_NOTES_DIR is set in the child environment so editor
-// plugins (obsidian.nvim) can locate the notes directory.
-func Edit(
-	path string,
-	lineNum string,
-) error {
-	cmd := exec.Command("nvim", editArgs(path, lineNum)...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "JOT_NOTES_DIR="+filepath.Dir(path))
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("nvim: %w", err)
+	tests := []struct {
+		name    string
+		path    string
+		lineNum string
+		want    []string
+	}{
+		{
+			name:    "no line number",
+			path:    "/notes/test.md",
+			lineNum: "",
+			want:    []string{"/notes/test.md"},
+		},
+		{
+			name:    "with line number",
+			path:    "/notes/test.md",
+			lineNum: "42",
+			want:    []string{"+42", "/notes/test.md"},
+		},
+		{
+			name:    "line number 1",
+			path:    "/notes/deep/nested.md",
+			lineNum: "1",
+			want:    []string{"+1", "/notes/deep/nested.md"},
+		},
 	}
-	return nil
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := editArgs(tt.path, tt.lineNum)
+			if len(got) != len(tt.want) {
+				t.Fatalf("editArgs() = %v, want %v", got, tt.want)
+			}
+			for i, v := range tt.want {
+				if got[i] != v {
+					t.Errorf("editArgs()[%d] = %q, want %q", i, got[i], v)
+				}
+			}
+		})
+	}
 }

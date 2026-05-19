@@ -21,6 +21,7 @@ surface to LLM agents. No database: files are the source of truth.
 ## 📦 Install
 
 > Requires [neovim](https://neovim.io) with plugins — see [nvim Setup](#%EF%B8%8F-nvim-setup) below.
+> Also requires [ripgrep](https://github.com/BurntSushi/ripgrep) and [fzf](https://github.com/junegunn/fzf) for search.
 
 ```bash
 curl -fsSL https://github.com/retr0h/jot/raw/main/install.sh | bash
