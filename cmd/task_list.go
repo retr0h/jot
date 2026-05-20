@@ -39,10 +39,9 @@ var (
 
 // taskListCmd implements `jot task list [--status X] [--tag X]`.
 var taskListCmd = &cobra.Command{
-	Use:     "list",
-	Aliases: []string{"l", "ls"},
-	Short:   "List tasks, optionally filtered by status or tag",
-	Args:    cobra.NoArgs,
+	Use:   "list",
+	Short: "List tasks, optionally filtered by status or tag",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 

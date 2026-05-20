@@ -37,9 +37,8 @@ import (
 //	done   mark a task as complete by slug + description
 //	due    show tasks due within a time period
 var taskCmd = &cobra.Command{
-	Use:     "task",
-	Aliases: []string{"t"},
-	Short:   "Manage tasks",
+	Use:   "task",
+	Short: "Manage tasks",
 }
 
 func init() {

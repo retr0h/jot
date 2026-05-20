@@ -39,10 +39,9 @@ var (
 // case-insensitive), appends done:YYYY-MM-DD, and writes the file back.
 // Auto-commits after.
 var taskDoneCmd = &cobra.Command{
-	Use:     "done",
-	Aliases: []string{"d"},
-	Short:   "Mark a task as complete",
-	Args:    cobra.NoArgs,
+	Use:   "done",
+	Short: "Mark a task as complete",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()

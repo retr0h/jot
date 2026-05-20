@@ -96,6 +96,7 @@ func SSHKeys() []string {
 }
 
 func init() {
+	cobra.EnablePrefixMatching = true
 	cobra.OnInitialize(initConfig, initLogger)
 
 	home, _ := os.UserHomeDir()

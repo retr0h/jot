@@ -39,9 +39,8 @@ import (
 //	diff   show working-tree diff
 //	show   show a specific commit's patch
 var gitCmd = &cobra.Command{
-	Use:     "git",
-	Aliases: []string{"g"},
-	Short:   "Git operations on the notes directory",
+	Use:   "git",
+	Short: "Git operations on the notes directory",
 }
 
 func init() {

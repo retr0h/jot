@@ -37,10 +37,9 @@ var noteEditSlugFlag string
 // Opens notesDir/slug.md in the configured editor and auto-commits after.
 // If --slug is omitted, an fzf picker is shown.
 var noteEditCmd = &cobra.Command{
-	Use:     "edit",
-	Aliases: []string{"e"},
-	Short:   "Open an existing note in your editor",
-	Args:    cobra.NoArgs,
+	Use:   "edit",
+	Short: "Open an existing note in your editor",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()

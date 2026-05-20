@@ -31,9 +31,8 @@ import (
 
 // noteCmd is the parent for `jot note` — all note management subcommands.
 var noteCmd = &cobra.Command{
-	Use:     "note",
-	Aliases: []string{"n"},
-	Short:   "Manage notes",
+	Use:   "note",
+	Short: "Manage notes",
 }
 
 func init() {

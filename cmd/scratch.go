@@ -35,10 +35,9 @@ import (
 )
 
 var scratchCmd = &cobra.Command{
-	Use:     "scratch",
-	Aliases: []string{"s"},
-	Short:   "Open the scratch note",
-	Args:    cobra.NoArgs,
+	Use:   "scratch",
+	Short: "Open the scratch note",
+	Args:  cobra.NoArgs,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		notesDir := NotesDir()
 		scratchPath := filepath.Join(notesDir, "scratch.md")

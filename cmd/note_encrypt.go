@@ -32,10 +32,9 @@ import (
 var noteEncryptSlugFlag string
 
 var noteEncryptCmd = &cobra.Command{
-	Use:     "encrypt",
-	Aliases: []string{"enc"},
-	Short:   "Encrypt an existing note via kvlt",
-	Args:    cobra.NoArgs,
+	Use:   "encrypt",
+	Short: "Encrypt an existing note via kvlt",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
