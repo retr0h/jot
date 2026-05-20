@@ -30,9 +30,8 @@ import (
 //
 //	list   list all tags/labels
 var tagCmd = &cobra.Command{
-	Use:     "tag",
-	Aliases: []string{"tg"},
-	Short:   "Manage tags",
+	Use:   "tag",
+	Short: "Manage tags",
 }
 
 func init() {

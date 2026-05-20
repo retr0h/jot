@@ -35,10 +35,9 @@ var (
 )
 
 var noteMvCmd = &cobra.Command{
-	Use:     "mv",
-	Aliases: []string{"m"},
-	Short:   "Rename a note and rewrite wikilinks",
-	Args:    cobra.NoArgs,
+	Use:   "mv",
+	Short: "Rename a note and rewrite wikilinks",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()

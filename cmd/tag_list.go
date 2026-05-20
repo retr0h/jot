@@ -31,10 +31,9 @@ import (
 
 // tagListCmd implements `jot tag list`.
 var tagListCmd = &cobra.Command{
-	Use:     "list",
-	Aliases: []string{"l", "ls"},
-	Short:   "List all tags",
-	Args:    cobra.NoArgs,
+	Use:   "list",
+	Short: "List all tags",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 

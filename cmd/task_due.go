@@ -34,10 +34,9 @@ var taskDuePeriodFlag string
 
 // taskDueCmd implements `jot task due [--period today|week|month]`.
 var taskDueCmd = &cobra.Command{
-	Use:     "due",
-	Aliases: []string{"du"},
-	Short:   "Show tasks due within a given period (default: week)",
-	Args:    cobra.NoArgs,
+	Use:   "due",
+	Short: "Show tasks due within a given period (default: week)",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 

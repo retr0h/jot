@@ -32,10 +32,9 @@ import (
 var noteDecryptSlugFlag string
 
 var noteDecryptCmd = &cobra.Command{
-	Use:     "decrypt",
-	Aliases: []string{"dec"},
-	Short:   "Decrypt a secure note back to plaintext",
-	Args:    cobra.NoArgs,
+	Use:   "decrypt",
+	Short: "Decrypt a secure note back to plaintext",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()

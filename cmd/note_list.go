@@ -33,10 +33,9 @@ var noteListTagFlag string
 
 // noteListCmd implements `jot note list [--tag X]`.
 var noteListCmd = &cobra.Command{
-	Use:     "list",
-	Aliases: []string{"l", "ls"},
-	Short:   "List notes, optionally filtered by tag",
-	Args:    cobra.NoArgs,
+	Use:   "list",
+	Short: "List notes, optionally filtered by tag",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 

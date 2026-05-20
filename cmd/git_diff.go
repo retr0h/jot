@@ -34,10 +34,9 @@ var gitDiffSlugFlag string
 // gitDiffCmd implements `jot git diff [--slug <slug>]`.
 // Prints the working-tree diff, optionally filtered to a single note.
 var gitDiffCmd = &cobra.Command{
-	Use:     "diff",
-	Aliases: []string{"d"},
-	Short:   "Show working-tree diff for the notes directory",
-	Args:    cobra.NoArgs,
+	Use:   "diff",
+	Short: "Show working-tree diff for the notes directory",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()

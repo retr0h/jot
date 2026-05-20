@@ -29,10 +29,9 @@ import (
 var noteCatSlugFlag string
 
 var noteCatCmd = &cobra.Command{
-	Use:     "cat",
-	Aliases: []string{"c"},
-	Short:   "Print a note's content to stdout",
-	Args:    cobra.NoArgs,
+	Use:   "cat",
+	Short: "Print a note's content to stdout",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()

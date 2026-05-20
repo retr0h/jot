@@ -37,10 +37,9 @@ var (
 // gitShowCmd implements `jot git show --commit <hash> [--note slug]`.
 // Prints the patch for the given commit hash, optionally filtered to a note.
 var gitShowCmd = &cobra.Command{
-	Use:     "show",
-	Aliases: []string{"s"},
-	Short:   "Show a specific commit's patch",
-	Args:    cobra.NoArgs,
+	Use:   "show",
+	Short: "Show a specific commit's patch",
+	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()

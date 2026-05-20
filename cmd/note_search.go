@@ -37,10 +37,9 @@ import (
 var noteSearchQueryFlag string
 
 var noteSearchCmd = &cobra.Command{
-	Use:     "search [query]",
-	Aliases: []string{"s"},
-	Short:   "Grep notes with ripgrep and open selection in nvim",
-	Args:    cobra.ArbitraryArgs,
+	Use:   "search [query]",
+	Short: "Grep notes with ripgrep and open selection in nvim",
+	Args:  cobra.ArbitraryArgs,
 	RunE: func(c *cobra.Command, args []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
