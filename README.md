@@ -11,17 +11,19 @@
 
 Terminal-first markdown notes + todos with linked tasks.
 
-Plain `.md` files with YAML frontmatter, edited in nvim with
-obsidian.nvim. Write `[[slug]]` wiki links to connect notes, embed
-checkbox tasks with `#tags` to create linked todos, and let jot track
-everything in git — every save is a commit. Sensitive notes encrypt at
-rest via [kvlt][] (age + SSH keys). An MCP server exposes the full
-surface to LLM agents. No database: files are the source of truth.
+Plain `.md` files with YAML frontmatter, edited in nvim with obsidian.nvim.
+Write `[[slug]]` wiki links to connect notes, embed checkbox tasks with `#tags`
+to create linked todos, and let jot track everything in git — every save is a
+commit. Sensitive notes encrypt at rest via [kvlt] (age + SSH keys). An MCP
+server exposes the full surface to LLM agents. No database: files are the source
+of truth.
 
 ## 📦 Install
 
-> Requires [neovim](https://neovim.io) with plugins — see [nvim Setup](#%EF%B8%8F-nvim-setup) below.
-> Also requires [ripgrep](https://github.com/BurntSushi/ripgrep) and [fzf](https://github.com/junegunn/fzf) for search.
+> Requires [neovim](https://neovim.io) with plugins — see
+> [nvim Setup](#%EF%B8%8F-nvim-setup) below. Also requires
+> [ripgrep](https://github.com/BurntSushi/ripgrep) and
+> [fzf](https://github.com/junegunn/fzf) for search.
 
 ```bash
 curl -fsSL https://github.com/retr0h/jot/raw/main/install.sh | bash
@@ -53,18 +55,18 @@ jot git log
 
 ## ✨ Features
 
-| Feature              | Description                                              |
-| -------------------- | -------------------------------------------------------- |
+| Feature              | Description                                             |
+| -------------------- | ------------------------------------------------------- |
 | Markdown notes       | `.md` files with YAML frontmatter, edited in nvim       |
-| `[[wiki links]]`     | Cross-reference notes by slug; obsidian.nvim navigates   |
-| Checkbox tasks       | `- [ ] desc \| due:date #tag` with due dates + tags      |
-| Git-backed           | Every edit auto-commits; `jot git log/diff/show`         |
-| Secure vaults        | `--secure` encrypts notes via [kvlt][] (age + SSH keys)  |
-| Full-text search     | Concurrent goroutine file scan — no index, no database   |
-| MCP server           | 8 tools over stdio for Claude / Cursor / any MCP client  |
-| Subdirectory nesting | `jot note new --title "ops/runbook"` for organization    |
-| nvim plugin          | Ships `lua/jot/` — auto-configures obsidian.nvim         |
-| Max Headroom palette | Magenta `#c678dd` accent across CLI, installer, nvim     |
+| `[[wiki links]]`     | Cross-reference notes by slug; obsidian.nvim navigates  |
+| Checkbox tasks       | `- [ ] desc \| due:date #tag` with due dates + tags     |
+| Git-backed           | Every edit auto-commits; `jot git log/diff/show`        |
+| Secure vaults        | `--secure` encrypts notes via [kvlt] (age + SSH keys)   |
+| Full-text search     | Concurrent goroutine file scan — no index, no database  |
+| MCP server           | 8 tools over stdio for Claude / Cursor / any MCP client |
+| Subdirectory nesting | `jot note new --title "ops/runbook"` for organization   |
+| nvim plugin          | Ships `lua/jot/` — auto-configures obsidian.nvim        |
+| Max Headroom palette | Magenta `#c678dd` accent across CLI, installer, nvim    |
 
 ## 📝 Note Format
 
@@ -85,9 +87,9 @@ Discussed the [[deployment-runbook]] and next steps.
 - [ ] Update [[deployment-runbook]]
 ```
 
-`[[slug]]` links connect notes. Checkbox tasks create linked todos.
-`#tags` are searchable via CLI (`jot tag list`) and nvim (`<leader>jt`).
-Frontmatter `tags:` arrays are also recognized.
+`[[slug]]` links connect notes. Checkbox tasks create linked todos. `#tags` are
+searchable via CLI (`jot tag list`) and nvim (`<leader>jt`). Frontmatter `tags:`
+arrays are also recognized.
 
 ## 🖥️ nvim Setup
 
@@ -97,25 +99,25 @@ vim.pack.add({"https://github.com/OXY2DEV/markview.nvim.git"})
 vim.pack.add({"https://github.com/retr0h/jot.git"})
 ```
 
-jot ships an nvim plugin that auto-configures [obsidian.nvim][] and
-[markview.nvim][] when `$JOT_NOTES_DIR` is set (jot sets this
-automatically when spawning the editor). Zero manual config.
+jot ships an nvim plugin that auto-configures [obsidian.nvim] and
+[markview.nvim] when `$JOT_NOTES_DIR` is set (jot sets this automatically when
+spawning the editor). Zero manual config.
 
 ### Keybindings
 
-| Key           | Action                              |
-| ------------- | ----------------------------------- |
-| `<leader>j?`  | Show keybindings (`:JotHelp`)       |
-| `<leader>jf`  | Follow `[[link]]` under cursor      |
-| `<leader>jj`  | Jump to note (fuzzy switch)         |
-| `<leader>js`  | Search notes (ripgrep)              |
-| `<leader>jt`  | Browse `#tags`                      |
-| `<leader>jb`  | Backlinks to current note           |
-| `<leader>jl`  | Links in current note               |
-| `<leader>jn`  | New note                            |
-| `<leader>jx`  | Toggle `[ ]` / `[x]` done          |
-| `[[`          | Autocomplete note slugs             |
-| `#`           | Autocomplete tags                   |
+| Key          | Action                         |
+| ------------ | ------------------------------ |
+| `<leader>j?` | Show keybindings (`:JotHelp`)  |
+| `<leader>jf` | Follow `[[link]]` under cursor |
+| `<leader>jj` | Jump to note (fuzzy switch)    |
+| `<leader>js` | Search notes (ripgrep)         |
+| `<leader>jt` | Browse `#tags`                 |
+| `<leader>jb` | Backlinks to current note      |
+| `<leader>jl` | Links in current note          |
+| `<leader>jn` | New note                       |
+| `<leader>jx` | Toggle `[ ]` / `[x]` done      |
+| `[[`         | Autocomplete note slugs        |
+| `#`          | Autocomplete tags              |
 
 ### Snippets
 
@@ -125,8 +127,8 @@ Type `task` then Enter to expand with tab-stop placeholders:
 - [ ] description | due:today #tag
 ```
 
-Tab jumps between placeholders. Date completions (next 7 days + day
-names) appear automatically while typing the due field.
+Tab jumps between placeholders. Date completions (next 7 days + day names)
+appear automatically while typing the due field.
 
 ## 🤖 MCP Server
 
@@ -155,8 +157,8 @@ Auto-discovered by Claude Code via [`.mcp.json`](.mcp.json):
 | `tasks_due`    | Tasks due in a date range                                        |
 | `list_tags`    | All tags across notes                                            |
 
-Secure notes over MCP require passphrase-free SSH keys configured in
-`ssh_keys` — there is no TTY for interactive prompts.
+Secure notes over MCP require passphrase-free SSH keys configured in `ssh_keys`
+— there is no TTY for interactive prompts.
 
 ## ⚙️ Configuration
 
@@ -167,23 +169,23 @@ Secure notes over MCP require passphrase-free SSH keys configured in
 # ssh_keys: []        # SSH key paths for kvlt (empty = auto-discover ~/.ssh/)
 ```
 
-Git is always on — every edit auto-commits. See [Configuration][] for
-the full reference (env vars, flags, precedence, SSH keys).
+Git is always on — every edit auto-commits. See [Configuration] for the full
+reference (env vars, flags, precedence, SSH keys).
 
 ## 📖 Documentation
 
-- [Configuration][] — env vars, flags, SSH keys, data layout
-- [Development][] — architecture, testing conventions, adding commands
-- [Contributing][] — commit style, lint chain, PR checklist
+- [Configuration] — env vars, flags, SSH keys, data layout
+- [Development] — architecture, testing conventions, adding commands
+- [Contributing] — commit style, lint chain, PR checklist
 
 ## 📄 License
 
-[MIT][]
+[MIT]
 
+[configuration]: docs/configuration.md
+[contributing]: docs/contributing.md
+[development]: docs/development.md
 [kvlt]: https://github.com/retr0h/kvlt
-[obsidian.nvim]: https://github.com/epwalsh/obsidian.nvim
 [markview.nvim]: https://github.com/OXY2DEV/markview.nvim
-[MIT]: LICENSE
-[Configuration]: docs/configuration.md
-[Development]: docs/development.md
-[Contributing]: docs/contributing.md
+[mit]: LICENSE
+[obsidian.nvim]: https://github.com/epwalsh/obsidian.nvim

@@ -4,14 +4,13 @@ Architecture intent + standards for Claude Code working in this repo.
 
 ## Project
 
-**jot** — terminal-first markdown notes + todos with linked tasks. Notes
-are plain `.md` files with YAML frontmatter, edited in nvim (hardcoded —
+**jot** — terminal-first markdown notes + todos with linked tasks. Notes are
+plain `.md` files with YAML frontmatter, edited in nvim (hardcoded —
 obsidian.nvim provides wiki-link navigation). Checkbox tasks
 (`- [ ] desc | due:date #tag`) create linked todos. `[[slug]]` wiki links
-connect notes.
-Git backs everything — every save is a commit. Sensitive notes encrypt at
-rest via kvlt (age + SSH keys). An MCP server exposes the full surface to
-LLM agents. No database: files are the source of truth.
+connect notes. Git backs everything — every save is a commit. Sensitive notes
+encrypt at rest via kvlt (age + SSH keys). An MCP server exposes the full
+surface to LLM agents. No database: files are the source of truth.
 
 ## Architecture
 
@@ -31,11 +30,11 @@ jot (binary)
 
 - **Files are source of truth.** No database — `.md` files are canonical.
 - **Git backs everything.** Every write goes through `internal/gitops`.
-- **Task round-trips.** Parser reads `- [ ] desc | due:X #tag` checkbox
-  format with pipe-delimited metadata fields.
-- **[[slug]] links.** Wiki-style links connect notes by slug.
-- **Interfaces where consumed.** Define interfaces in the consuming package,
-  not the providing package.
+- **Task round-trips.** Parser reads `- [ ] desc | due:X #tag` checkbox format
+  with pipe-delimited metadata fields.
+- **\[[slug]\] links.** Wiki-style links connect notes by slug.
+- **Interfaces where consumed.** Define interfaces in the consuming package, not
+  the providing package.
 
 ## Code standards
 
@@ -71,6 +70,9 @@ go run . --help
 
 ## Reference docs (read on demand)
 
-- [docs/configuration.md](docs/configuration.md) — config file, env vars, flags, SSH keys, data layout
-- [docs/development.md](docs/development.md) — testing conventions, adding commands, error handling, note format
-- [docs/contributing.md](docs/contributing.md) — commit style, lint chain, PR checklist
+- [docs/configuration.md](docs/configuration.md) — config file, env vars, flags,
+  SSH keys, data layout
+- [docs/development.md](docs/development.md) — testing conventions, adding
+  commands, error handling, note format
+- [docs/contributing.md](docs/contributing.md) — commit style, lint chain, PR
+  checklist
