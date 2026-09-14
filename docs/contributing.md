@@ -19,7 +19,8 @@ need to follow for a smooth PR review.
 
 ## Commit Style
 
-jot follows [Conventional Commits]. Every commit message must have a type prefix:
+jot follows [Conventional Commits]. Every commit message must have a type
+prefix:
 
 ```
 feat: add tag autocomplete to nvim plugin
@@ -96,9 +97,9 @@ just ready
 Individual steps:
 
 ```bash
-just go::fmt    # gofmt + goimports
-just go::vet    # go vet
-just go::lint   # golangci-lint run
+just go-fmt    # gofmt + goimports
+just go-vet    # go vet
+just go-lint   # golangci-lint run
 ```
 
 Enabled linters: `errcheck`, `errname`, `govet`, `prealloc`, `predeclared`,
@@ -140,7 +141,7 @@ func TestParseTasks(t *testing.T) {
 Run tests with the race detector:
 
 ```bash
-just go::test
+just go-test
 # or directly:
 go test -race ./...
 ```
@@ -154,5 +155,5 @@ go test -race ./...
 - [ ] Errors wrapped with `fmt.Errorf("context: %w", err)`
 - [ ] Commit messages follow Conventional Commits
 
+[conventional commits]: https://conventionalcommits.org
 [just]: https://just.systems
-[Conventional Commits]: https://conventionalcommits.org
