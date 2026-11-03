@@ -90,6 +90,145 @@ Hello world.
 	}
 }
 
+// ─── EncryptNote ────────────────────────────────────────────────────────────
+
+const plainNote = "---\ntitle: \"Plain\"\ntags: [ops]\ncreated: 2026-05-14\n---\n\nSecret body.\n"
+
+func TestEncryptNote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		slug    string
+		setup   func(t *testing.T, svc *jot.Service)
+		wantErr bool
+	}{
+		{
+			name: "moves the body into the vault and keeps the frontmatter",
+			slug: "plain",
+			setup: func(t *testing.T, svc *jot.Service) {
+				writeNote(t, svc.NotesDir, "plain", plainNote)
+			},
+		},
+		{
+			name: "already encrypted note returns error",
+			slug: "plain",
+			setup: func(t *testing.T, svc *jot.Service) {
+				writeNote(t, svc.NotesDir, "plain", plainNote)
+				if err := svc.EncryptNote("plain"); err != nil {
+					t.Fatalf("setup encrypt: %v", err)
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name:    "missing note returns error",
+			slug:    "no-such-note",
+			setup:   func(_ *testing.T, _ *jot.Service) {},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc := newSecureSvc(t, t.TempDir())
+			tt.setup(t, svc)
+
+			err := svc.EncryptNote(tt.slug)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("EncryptNote: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("EncryptNote: unexpected error: %v", err)
+			}
+
+			data, err := os.ReadFile(filepath.Join(svc.NotesDir, tt.slug+".md"))
+			if err != nil {
+				t.Fatalf("read note: %v", err)
+			}
+			if !strings.Contains(string(data), "secure: true") ||
+				!strings.Contains(string(data), "tags: [ops]") ||
+				strings.Contains(string(data), "Secret body.") {
+				t.Errorf("file after encrypt = %q", data)
+			}
+			body, err := svc.CatNote(tt.slug)
+			if err != nil || !strings.Contains(body, "Secret body.") {
+				t.Errorf("CatNote after encrypt = %q, %v", body, err)
+			}
+		})
+	}
+}
+
+// ─── DecryptNote ────────────────────────────────────────────────────────────
+
+func TestDecryptNote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		slug    string
+		setup   func(t *testing.T, svc *jot.Service)
+		wantErr bool
+	}{
+		{
+			name: "restores the body to the file",
+			slug: "plain",
+			setup: func(t *testing.T, svc *jot.Service) {
+				writeNote(t, svc.NotesDir, "plain", plainNote)
+				if err := svc.EncryptNote("plain"); err != nil {
+					t.Fatalf("setup encrypt: %v", err)
+				}
+			},
+		},
+		{
+			name: "plaintext note returns error",
+			slug: "plain",
+			setup: func(t *testing.T, svc *jot.Service) {
+				writeNote(t, svc.NotesDir, "plain", plainNote)
+			},
+			wantErr: true,
+		},
+		{
+			name:    "missing note returns error",
+			slug:    "no-such-note",
+			setup:   func(_ *testing.T, _ *jot.Service) {},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc := newSecureSvc(t, t.TempDir())
+			tt.setup(t, svc)
+
+			err := svc.DecryptNote(tt.slug)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("DecryptNote: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DecryptNote: unexpected error: %v", err)
+			}
+
+			data, err := os.ReadFile(filepath.Join(svc.NotesDir, tt.slug+".md"))
+			if err != nil {
+				t.Fatalf("read note: %v", err)
+			}
+			if strings.Contains(string(data), "secure: true") ||
+				!strings.Contains(string(data), "Secret body.") {
+				t.Errorf("file after decrypt = %q", data)
+			}
+		})
+	}
+}
+
 // ─── CreateNote ─────────────────────────────────────────────────────────────
 
 func TestCreateNote(t *testing.T) {
@@ -99,11 +238,20 @@ func TestCreateNote(t *testing.T) {
 		name        string
 		title       string
 		content     string
+		secure      bool
 		dir         func(t *testing.T) string
 		wantSlugSub string
 		wantBodySub string
 		wantErr     bool
 	}{
+		{
+			name:        "secure note keeps only frontmatter on disk",
+			title:       "Vault Note",
+			content:     "Top secret.",
+			secure:      true,
+			wantSlugSub: "vault-note",
+			wantBodySub: "secure: true",
+		},
 		{
 			name:        "creates note with content",
 			title:       "Test Note",
@@ -145,8 +293,11 @@ func TestCreateNote(t *testing.T) {
 				dir = t.TempDir()
 			}
 			svc := newSvc(dir)
+			if tt.secure {
+				svc = newSecureSvc(t, dir)
+			}
 
-			slug, path, err := svc.CreateNote(tt.title, tt.content, false)
+			slug, path, err := svc.CreateNote(tt.title, tt.content, tt.secure)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("CreateNote: expected error, got nil")
@@ -166,6 +317,12 @@ func TestCreateNote(t *testing.T) {
 			}
 			if !strings.Contains(string(data), tt.wantBodySub) {
 				t.Errorf("file content = %q, want substring %q", string(data), tt.wantBodySub)
+			}
+			if tt.secure {
+				body, err := svc.CatNote(slug)
+				if strings.Contains(string(data), tt.content) || err != nil || body != tt.content {
+					t.Errorf("secure note: file %q, CatNote = %q, %v", data, body, err)
+				}
 			}
 		})
 	}

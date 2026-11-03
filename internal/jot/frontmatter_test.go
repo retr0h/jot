@@ -110,6 +110,12 @@ title: "Unclosed"
 			wantTitle: "",
 			wantBody:  "---",
 		},
+		{
+			name:      "malformed YAML treated as no frontmatter",
+			content:   "---\ntitle: [unclosed\n---\n\nBody.\n",
+			wantTitle: "",
+			wantBody:  "title: [unclosed",
+		},
 	}
 
 	for _, tt := range tests {

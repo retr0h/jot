@@ -1,4 +1,4 @@
-set allow-duplicate-variables
+set allow-duplicate-variables := true
 
 # Optional modules: import? allows `just fetch` to work before .just/remote/ exists.
 
@@ -14,6 +14,9 @@ md_site_dir := ""
 # real floor keeps the gate on and stops regressions without failing on day one.
 
 go_coverage_target := "84"
+
+default:
+    @just --list
 
 # --- Fetch ---
 
