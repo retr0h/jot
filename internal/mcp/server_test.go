@@ -45,7 +45,26 @@ type mockStore struct {
 	allTasksFn     func(string, string) ([]jot.Task, error)
 	tasksDueFn     func(time.Time, time.Time) ([]jot.Task, error)
 	markTaskDoneFn func(string, string) error
+	addTaskFn      func(string, string, jot.RawTask) error
 	allTagsFn      func() ([]string, error)
+}
+
+func (m *mockStore) AddTask(slug, title string, task jot.RawTask) error {
+	if m.addTaskFn != nil {
+		return m.addTaskFn(slug, title, task)
+	}
+	return nil
+}
+
+// mockCommitter records commit messages, optionally failing.
+type mockCommitter struct {
+	messages []string
+	err      error
+}
+
+func (m *mockCommitter) Commit(message string) error {
+	m.messages = append(m.messages, message)
+	return m.err
 }
 
 func (m *mockStore) ListNotes(tag string) ([]*jot.Note, error) {
@@ -870,6 +889,130 @@ func TestHandleTaskDone(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandleTaskAdd(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		store      *mockStore
+		args       taskAddArgs
+		wantSub    string
+		wantCommit string
+	}{
+		{
+			name:    "empty slug returns error",
+			store:   &mockStore{},
+			args:    taskAddArgs{Desc: "task"},
+			wantSub: "error: slug is required",
+		},
+		{
+			name:    "empty desc returns error",
+			store:   &mockStore{},
+			args:    taskAddArgs{Slug: "note"},
+			wantSub: "error: desc is required",
+		},
+		{
+			name:    "invalid date returns error",
+			store:   &mockStore{},
+			args:    taskAddArgs{Slug: "note", Desc: "x", Due: "someday"},
+			wantSub: "error: add task: due",
+		},
+		{
+			name: "adds a done task and commits",
+			store: &mockStore{
+				addTaskFn: func(slug, title string, task jot.RawTask) error {
+					if slug != "done/2026-11-03" || title != "Done" || !task.Done ||
+						task.DoneDate != "2026-11-02" || task.Labels[0] != "cos" {
+						return fmt.Errorf("unexpected args %q %q %+v", slug, title, task)
+					}
+					return nil
+				},
+			},
+			args: taskAddArgs{
+				Slug: "done/2026-11-03", Title: "Done", Desc: "Merged !20",
+				Done: "2026-11-02", Tags: []string{"#cos"},
+			},
+			wantSub:    `"line": "- [x] Merged !20 | done:2026-11-02 #cos"`,
+			wantCommit: `task: add "Merged !20" to done/2026-11-03`,
+		},
+		{
+			name: "store error returned as text without a commit",
+			store: &mockStore{
+				addTaskFn: func(_, _ string, _ jot.RawTask) error {
+					return fmt.Errorf("task description contains a #tag")
+				},
+			},
+			args:    taskAddArgs{Slug: "note", Desc: "in #eng"},
+			wantSub: "error: add task: task description contains a #tag",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			committer := &mockCommitter{}
+			srv, _ := New(Config{Store: tt.store, Committer: committer})
+			r, _, err := srv.handleTaskAdd(context.Background(), nil, tt.args)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := resultText(r)
+			if !containsStr(got, tt.wantSub) {
+				t.Errorf("got %q, want substring %q", got, tt.wantSub)
+			}
+			switch {
+			case tt.wantCommit == "" && len(committer.messages) > 0:
+				t.Errorf("unexpected commit %q", committer.messages)
+			case tt.wantCommit != "" && (len(committer.messages) != 1 || committer.messages[0] != tt.wantCommit):
+				t.Errorf("commits = %q, want [%q]", committer.messages, tt.wantCommit)
+			}
+		})
+	}
+}
+
+func TestServer_commit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		committer *mockCommitter
+		subject   string
+		want      []string
+	}{
+		{
+			name:      "commits with a formatted subject",
+			committer: &mockCommitter{},
+			subject:   "note: add todo.",
+			want:      []string{"note: add todo"},
+		},
+		{
+			name:      "a failing commit is logged, not raised",
+			committer: &mockCommitter{err: fmt.Errorf("locked")},
+			subject:   "note: delete x",
+			want:      []string{"note: delete x"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv, _ := New(Config{Store: &mockStore{}, Committer: tt.committer})
+			srv.commit(tt.subject)
+			if len(tt.committer.messages) != len(tt.want) ||
+				tt.committer.messages[0] != tt.want[0] {
+				t.Errorf("commits = %q, want %q", tt.committer.messages, tt.want)
+			}
+		})
+	}
+
+	t.Run("no committer is a no-op", func(t *testing.T) {
+		t.Parallel()
+		newTestServer(&mockStore{}).commit("note: add x")
+	})
 }
 
 func TestHandleTasksDue(t *testing.T) {

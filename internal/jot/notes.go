@@ -23,6 +23,7 @@
 package jot
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -34,7 +35,11 @@ import (
 	"time"
 )
 
-var headingRe = regexp.MustCompile(`(?m)^#\s+(.+)$`)
+var (
+	headingRe = regexp.MustCompile(`(?m)^#\s+(.+)$`)
+	tagNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_/-]*$`)
+	dateRe    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+)
 
 // Note is a markdown note backed by a .md file on disk.
 type Note struct {
@@ -366,6 +371,74 @@ func markTaskDone(
 	}
 
 	return os.WriteFile(notePath, []byte(strings.Join(lines, "\n")), 0o600)
+}
+
+// addTask appends task as a checkbox line to notesDir/slug.md, creating the
+// note (and any parent directories) when it does not exist. It refuses
+// anything that would not parse back to the same task: a multi-line or
+// piped description, an inline #tag in the description, a malformed tag or
+// date. Secure notes are refused because their body lives in kvlt.
+func addTask(
+	notesDir string,
+	slug string,
+	title string,
+	task RawTask,
+) error {
+	clean := filepath.ToSlash(filepath.Clean(slug))
+	if slug == "" || filepath.IsAbs(slug) || clean == ".." || strings.HasPrefix(clean, "../") {
+		return fmt.Errorf("invalid note slug %q", slug)
+	}
+
+	task.Description = strings.TrimSpace(task.Description)
+	switch {
+	case task.Description == "":
+		return fmt.Errorf("task description is required")
+	case strings.ContainsAny(task.Description, "|\r\n"):
+		return fmt.Errorf("task description must be one line without \"|\": %q", task.Description)
+	case len(ParseLineTags(task.Description)) > 0:
+		return fmt.Errorf(
+			"task description contains a #tag; pass tags separately: %q",
+			task.Description,
+		)
+	}
+	for _, t := range task.Labels {
+		if !tagNameRe.MatchString(t) {
+			return fmt.Errorf("invalid tag %q", t)
+		}
+	}
+	for _, d := range []string{task.DueDate, task.DoneDate} {
+		if d != "" && !dateRe.MatchString(d) {
+			return fmt.Errorf("invalid date %q: want YYYY-MM-DD", d)
+		}
+	}
+	if task.Done && task.DoneDate == "" {
+		task.DoneDate = time.Now().Format("2006-01-02")
+	}
+
+	notePath := filepath.Join(notesDir, clean+".md")
+	content, err := os.ReadFile(notePath)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if title == "" {
+			title = filepath.Base(clean)
+		}
+		if err := os.MkdirAll(filepath.Dir(notePath), 0o700); err != nil {
+			return fmt.Errorf("create dir for %q: %w", slug, err)
+		}
+		content = []byte(ScaffoldFrontmatter(title, time.Now().Format("2006-01-02")))
+	case err != nil:
+		return fmt.Errorf("read note %q: %w", notePath, err)
+	default:
+		if fm, _ := ParseFrontmatter(string(content)); fm.Secure {
+			return fmt.Errorf("note %q is encrypted; decrypt it before adding tasks", slug)
+		}
+	}
+
+	text := string(content)
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	return os.WriteFile(notePath, []byte(text+FormatTask(task)+"\n"), 0o600)
 }
 
 // titleFromBody extracts the text of the first level-1 heading from body.

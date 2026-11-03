@@ -49,6 +49,7 @@ echo "secret stuff" | jot note new --title "Credentials" --secure
 jot note list
 jot note search --query "kubernetes"
 jot task list
+jot task add --slug todo --desc "call Sam" --due friday --tag work
 jot task due
 jot git log
 ```
@@ -153,12 +154,14 @@ Auto-discovered by Claude Code via [`.mcp.json`](.mcp.json):
 | `encrypt_note` | Encrypt an existing note via kvlt                                |
 | `decrypt_note` | Decrypt a secure note back to plaintext                          |
 | `list_tasks`   | Tasks filtered by status/tag                                     |
+| `task_add`     | Append a task to a note, creating the note if needed             |
 | `task_done`    | Mark a task as complete                                          |
 | `tasks_due`    | Tasks due in a date range                                        |
 | `list_tags`    | All tags across notes                                            |
 
-Secure notes over MCP require passphrase-free SSH keys configured in `ssh_keys`
-— there is no TTY for interactive prompts.
+Every write tool commits to the notes repo, like the CLI. Secure notes over MCP
+require passphrase-free SSH keys configured in `ssh_keys` — there is no TTY for
+interactive prompts.
 
 ## ⚙️ Configuration
 

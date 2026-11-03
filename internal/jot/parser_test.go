@@ -21,8 +21,10 @@
 package jot_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/retr0h/jot/internal/jot"
 )
@@ -213,6 +215,82 @@ func TestFormatTask(t *testing.T) {
 			got := jot.FormatTask(tt.task)
 			if got != tt.want {
 				t.Errorf("FormatTask() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewTask(t *testing.T) {
+	t.Parallel()
+
+	thursday := time.Date(2026, 5, 14, 9, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		desc    string
+		due     string
+		done    string
+		tags    []string
+		want    jot.RawTask
+		wantErr bool
+	}{
+		{
+			name: "open task with natural due date and tags",
+			desc: "  review PR  ",
+			due:  "friday",
+			tags: []string{"#work", "ci"},
+			want: jot.RawTask{
+				Description: "review PR",
+				DueDate:     "2026-05-15",
+				Labels:      []string{"work", "ci"},
+			},
+		},
+		{
+			name: "done today",
+			desc: "ship it",
+			done: "today",
+			want: jot.RawTask{Description: "ship it", Done: true, DoneDate: "2026-05-14"},
+		},
+		{
+			name: "done on an explicit past date",
+			desc: "merged !20",
+			done: "2026-05-01",
+			want: jot.RawTask{Description: "merged !20", Done: true, DoneDate: "2026-05-01"},
+		},
+		{
+			name: "empty input yields an empty open task",
+			want: jot.RawTask{},
+		},
+		{
+			name:    "invalid due date",
+			desc:    "x",
+			due:     "someday",
+			wantErr: true,
+		},
+		{
+			name:    "invalid done date",
+			desc:    "x",
+			done:    "2026-13-45",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := jot.NewTask(tt.desc, tt.due, tt.done, tt.tags, thursday)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("NewTask: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewTask: unexpected error: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NewTask() = %+v, want %+v", got, tt.want)
 			}
 		})
 	}

@@ -55,24 +55,33 @@ type Store interface {
 	AllTasks(status string, tagFilter string) ([]jot.Task, error)
 	TasksDue(from time.Time, to time.Time) ([]jot.Task, error)
 	MarkTaskDone(slug string, desc string) error
+	AddTask(slug string, title string, task jot.RawTask) error
 	AllTags() ([]string, error)
+}
+
+// Committer records a write in the notes repository; *gitops.Repo
+// satisfies it. Without one, tool writes land on disk uncommitted.
+type Committer interface {
+	Commit(message string) error
 }
 
 // ─── Config and Server ───────────────────────────────────────────────────────
 
 // Config bundles the runtime inputs for a jot MCP server.
 type Config struct {
-	Store  Store
-	Logger *slog.Logger
+	Store     Store
+	Committer Committer
+	Logger    *slog.Logger
 }
 
 // Server is the jot MCP server. Holds a Store (the narrow consumer
 // surface) used by every tool handler, plus the underlying mcpsdk.Server.
 // Constructed via New; the wire is driven by Run.
 type Server struct {
-	mcp    *mcpsdk.Server
-	store  Store
-	logger *slog.Logger
+	mcp       *mcpsdk.Server
+	store     Store
+	committer Committer
+	logger    *slog.Logger
 }
 
 // New creates an MCP server, registers all tools, and returns a
@@ -96,9 +105,10 @@ func New(cfg Config) (*Server, error) {
 	)
 
 	s := &Server{
-		mcp:    mcpSrv,
-		store:  cfg.Store,
-		logger: cfg.Logger.With(slog.String("subsystem", "mcp")),
+		mcp:       mcpSrv,
+		store:     cfg.Store,
+		committer: cfg.Committer,
+		logger:    cfg.Logger.With(slog.String("subsystem", "mcp")),
 	}
 	s.registerTools()
 	return s, nil
@@ -124,7 +134,8 @@ func (s *Server) Close() error {
 const instructions = `jot — terminal notes and tasks backed by markdown files and git.
 
 This server exposes every jot operation over MCP so an LLM agent can read,
-create, and delete notes, tasks, and tags directly.
+create, and delete notes, tasks, and tags directly. Every write is committed
+to the notes git repository, like the CLI's.
 
 ## Notes
 
@@ -160,10 +171,11 @@ passphrase-free key in their jot.yaml ssh_keys list.
 
 ## Tasks
 
-Tasks are @task markers embedded in notes. They carry an optional due date
+Tasks are checkbox lines embedded in notes. They carry an optional due date
 and optional inline #tags.
 
 - list_tasks    list tasks filtered by status (open/done/all) and tag
+- task_add      append a task to a note, creating the note if needed
 - task_done     mark a task as complete (appends done:YYYY-MM-DD)
 - tasks_due     list open tasks due today, this_week, or this_month
 

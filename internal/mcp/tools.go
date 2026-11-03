@@ -23,9 +23,13 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/retr0h/jot/internal/gitops"
+	"github.com/retr0h/jot/internal/jot"
 )
 
 // registerTools wires all jot MCP tools into the SDK server.
@@ -74,6 +78,11 @@ func (s *Server) registerTools() {
 		Name:        "list_tasks",
 		Description: `List tasks filtered by status ("open", "done", or "all") and optionally by tag.`,
 	}, s.handleListTasks)
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "task_add",
+		Description: "Append a checkbox task to a note, creating the note when it does not exist. Can add it already done.",
+	}, s.handleTaskAdd)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "task_done",
@@ -138,6 +147,15 @@ type taskDoneArgs struct {
 	Desc string `json:"desc" jsonschema:"Task description (substring match, case-insensitive)."`
 }
 
+type taskAddArgs struct {
+	Slug  string   `json:"slug"            jsonschema:"Note slug to add the task to, such as todo or done/2026-11-03; created when missing."`
+	Desc  string   `json:"desc"            jsonschema:"Task description: one line, without | or #tags."`
+	Title string   `json:"title,omitempty" jsonschema:"Title for a new note (default: the slug's last segment)."`
+	Due   string   `json:"due,omitempty"   jsonschema:"Due date: YYYY-MM-DD, today, tomorrow, a weekday name, or next week (optional)."`
+	Done  string   `json:"done,omitempty"  jsonschema:"Add the task already done, on this date (same forms as due); omit for an open task."`
+	Tags  []string `json:"tags,omitempty"  jsonschema:"Tags, without the leading # (optional)."`
+}
+
 type tasksDueArgs struct {
 	Period string `json:"period" jsonschema:"Period to query: today, this_week, or this_month."`
 }
@@ -187,6 +205,7 @@ func (s *Server) handleCreateNote(
 	if err != nil {
 		return textResult(fmt.Sprintf("error: create note: %v", err)), nil, nil
 	}
+	s.commit("note: add " + slug)
 
 	return textResult(
 		fmt.Sprintf(`{"slug": %q, "path": %q, "secure": %t}`, slug, notePath, args.Secure),
@@ -205,6 +224,7 @@ func (s *Server) handleDeleteNote(
 	if err := s.store.DeleteNote(args.Slug); err != nil {
 		return textResult(fmt.Sprintf("error: delete note %q: %v", args.Slug, err)), nil, nil
 	}
+	s.commit("note: delete " + args.Slug)
 
 	return textResult(fmt.Sprintf(`{"deleted": %q}`, args.Slug)), nil, nil
 }
@@ -240,6 +260,7 @@ func (s *Server) handleRenameNote(
 	if err != nil {
 		return textResult(fmt.Sprintf("error: rename note: %v", err)), nil, nil
 	}
+	s.commit(fmt.Sprintf("note: rename %s -> %s", args.Slug, newSlug))
 
 	return textResult(fmt.Sprintf(`{"old_slug": %q, "new_slug": %q}`, args.Slug, newSlug)), nil, nil
 }
@@ -256,6 +277,7 @@ func (s *Server) handleEncryptNote(
 	if err := s.store.EncryptNote(args.Slug); err != nil {
 		return textResult(fmt.Sprintf("error: encrypt note %q: %v", args.Slug, err)), nil, nil
 	}
+	s.commit("note(secure): encrypt " + args.Slug)
 
 	return textResult(fmt.Sprintf(`{"encrypted": %q}`, args.Slug)), nil, nil
 }
@@ -272,6 +294,7 @@ func (s *Server) handleDecryptNote(
 	if err := s.store.DecryptNote(args.Slug); err != nil {
 		return textResult(fmt.Sprintf("error: decrypt note %q: %v", args.Slug, err)), nil, nil
 	}
+	s.commit("note(secure): decrypt " + args.Slug)
 
 	return textResult(fmt.Sprintf(`{"decrypted": %q}`, args.Slug)), nil, nil
 }
@@ -307,10 +330,38 @@ func (s *Server) handleTaskDone(
 	if err := s.store.MarkTaskDone(args.Slug, args.Desc); err != nil {
 		return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
 	}
+	s.commit(fmt.Sprintf("task: done %q in %s", args.Desc, args.Slug))
 
 	return textResult(
 		fmt.Sprintf(`{"slug": %q, "task": %q, "done": true}`, args.Slug, args.Desc),
 	), nil, nil
+}
+
+func (s *Server) handleTaskAdd(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args taskAddArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+	if args.Desc == "" {
+		return textResult("error: desc is required"), nil, nil
+	}
+
+	task, err := jot.NewTask(args.Desc, args.Due, args.Done, args.Tags, time.Now())
+	if err != nil {
+		return textResult(fmt.Sprintf("error: add task: %v", err)), nil, nil
+	}
+	if err := s.store.AddTask(args.Slug, args.Title, task); err != nil {
+		return textResult(fmt.Sprintf("error: add task: %v", err)), nil, nil
+	}
+	s.commit(fmt.Sprintf("task: add %q to %s", task.Description, args.Slug))
+
+	return textResult(jsonOrErr(map[string]any{
+		"slug": args.Slug,
+		"line": jot.FormatTask(task),
+	})), nil, nil
 }
 
 func (s *Server) handleTasksDue(
@@ -356,6 +407,17 @@ func (s *Server) handleListTags(
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+// commit records a successful write the way the CLI does. A failed commit
+// is logged rather than returned: the write itself already succeeded.
+func (s *Server) commit(subject string) {
+	if s.committer == nil {
+		return
+	}
+	if err := s.committer.Commit(gitops.FormatCommitMessage(subject, "")); err != nil {
+		s.logger.Warn("commit failed", slog.String("error", err.Error()))
+	}
+}
 
 // textResult wraps a string as an MCP CallToolResult with a single TextContent
 // block — the canonical response shape for every tool.

@@ -399,6 +399,177 @@ func TestMarkTaskDone(t *testing.T) {
 	}
 }
 
+// ─── AddTask ────────────────────────────────────────────────────────────────
+
+func TestAddTask(t *testing.T) {
+	t.Parallel()
+
+	done := jot.RawTask{
+		Description: "Merged !20",
+		Done:        true,
+		DoneDate:    "2026-11-02",
+		Labels:      []string{"cos"},
+	}
+
+	tests := []struct {
+		name    string
+		slug    string
+		title   string
+		task    jot.RawTask
+		setup   func(t *testing.T, dir string)
+		want    []string // substrings of the resulting file
+		wantErr bool
+	}{
+		{
+			name:  "creates a nested note with its title and the task",
+			slug:  "done/2026-11-02",
+			title: "Done 2026-11-02",
+			task:  done,
+			setup: func(_ *testing.T, _ string) {},
+			want: []string{
+				`title: "Done 2026-11-02"`,
+				"# Done 2026-11-02\n",
+				"\n- [x] Merged !20 | done:2026-11-02 #cos\n",
+			},
+		},
+		{
+			name:  "title defaults to the slug's last segment",
+			slug:  "inbox/todo",
+			task:  jot.RawTask{Description: "call Sam"},
+			setup: func(_ *testing.T, _ string) {},
+			want:  []string{`title: "todo"`, "- [ ] call Sam\n"},
+		},
+		{
+			name: "appends to an existing note without a trailing newline",
+			slug: "tasks-note",
+			task: jot.RawTask{
+				Description: "Tag release",
+				DueDate:     "2026-05-20",
+				Labels:      []string{"ops"},
+			},
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "tasks-note", strings.TrimRight(testNote, "\n"))
+			},
+			want: []string{"title: \"Test Note\"", "\n- [ ] Tag release | due:2026-05-20 #ops\n"},
+		},
+		{
+			name:  "done without a date is done today",
+			slug:  "today",
+			task:  jot.RawTask{Description: "x", Done: true},
+			setup: func(_ *testing.T, _ string) {},
+			want:  []string{"- [x] x | done:"},
+		},
+		{
+			name:    "empty slug",
+			task:    done,
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "slug escaping the notes dir",
+			slug:    "../outside",
+			task:    done,
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "empty description",
+			slug:    "n",
+			task:    jot.RawTask{Description: "   "},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "description with a pipe",
+			slug:    "n",
+			task:    jot.RawTask{Description: "a | b"},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "multi-line description",
+			slug:    "n",
+			task:    jot.RawTask{Description: "a\nb"},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "description with an inline tag",
+			slug:    "n",
+			task:    jot.RawTask{Description: "replied in #eng-sensor"},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "invalid tag",
+			slug:    "n",
+			task:    jot.RawTask{Description: "x", Labels: []string{"two words"}},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "invalid date",
+			slug:    "n",
+			task:    jot.RawTask{Description: "x", DueDate: "friday"},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name: "secure note is refused",
+			slug: "vault",
+			task: done,
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "vault", "---\ntitle: \"v\"\ntags: []\nsecure: true\n---\n")
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			tt.setup(t, dir)
+			svc := newSvc(dir)
+
+			err := svc.AddTask(tt.slug, tt.title, tt.task)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("AddTask: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("AddTask: unexpected error: %v", err)
+			}
+
+			data, err := os.ReadFile(filepath.Join(dir, tt.slug+".md"))
+			if err != nil {
+				t.Fatalf("read note: %v", err)
+			}
+			for _, sub := range tt.want {
+				if !strings.Contains(string(data), sub) {
+					t.Errorf("note = %q, want substring %q", data, sub)
+				}
+			}
+
+			// Round trip: the parser reads back exactly the task written.
+			tasks, err := svc.AllTasks("all", "")
+			if err != nil {
+				t.Fatalf("AllTasks: %v", err)
+			}
+			last := tasks[len(tasks)-1]
+			if last.Description != strings.TrimSpace(tt.task.Description) {
+				t.Errorf(
+					"round trip description = %q, want %q",
+					last.Description,
+					tt.task.Description,
+				)
+			}
+		})
+	}
+}
+
 // ─── RewriteNoteTitle ───────────────────────────────────────────────────────
 
 func TestRewriteNoteTitle(t *testing.T) {

@@ -210,6 +210,17 @@ func (s *Service) MarkTaskDone(
 	return markTaskDone(notePath, desc)
 }
 
+// AddTask appends a checkbox task to the note at slug, creating the note
+// with title (the slug's last segment when empty) if it does not exist.
+// Slugs may name a subdirectory, such as "done/2026-11-03".
+func (s *Service) AddTask(
+	slug string,
+	title string,
+	task RawTask,
+) error {
+	return addTask(s.NotesDir, slug, title, task)
+}
+
 // ReadNoteByPath reads and returns the note at the given absolute path.
 func (s *Service) ReadNoteByPath(path string) (*Note, error) {
 	return readNote(path)
