@@ -617,6 +617,29 @@ func TestAddTask(t *testing.T) {
 			want:  []string{"- [x] x | done:"},
 		},
 		{
+			name: "note path blocked by a file is a read error",
+			slug: "blocker/note",
+			task: done,
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "blocker", testNote)
+				if err := os.Rename(filepath.Join(dir, "blocker.md"), filepath.Join(dir, "blocker")); err != nil {
+					t.Fatalf("setup: %v", err)
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "folder that cannot be created",
+			slug: "locked/sub/note",
+			task: done,
+			setup: func(t *testing.T, dir string) {
+				if err := os.Mkdir(filepath.Join(dir, "locked"), 0o500); err != nil {
+					t.Fatalf("setup: %v", err)
+				}
+			},
+			wantErr: true,
+		},
+		{
 			name:    "empty slug",
 			task:    done,
 			setup:   func(_ *testing.T, _ string) {},
