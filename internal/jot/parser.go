@@ -21,8 +21,10 @@
 package jot
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var (
@@ -124,6 +126,47 @@ func FormatTask(task RawTask) string {
 	}
 
 	return result
+}
+
+// NewTask builds a task from user input. due and done accept any ParseDate
+// form ("friday", "2026-05-20") resolved relative to now; an empty done
+// leaves the task open. Tags may carry a leading "#". AddTask validates the
+// result before writing it.
+func NewTask(
+	desc string,
+	due string,
+	done string,
+	tags []string,
+	now time.Time,
+) (RawTask, error) {
+	task := RawTask{Description: strings.TrimSpace(desc)}
+
+	if due != "" {
+		d, err := ParseDate(due, now)
+		if err != nil {
+			return RawTask{}, fmt.Errorf("due: %w", err)
+		}
+		task.DueDate = d.Format("2006-01-02")
+	}
+
+	if done != "" {
+		d, err := ParseDate(done, now)
+		if err != nil {
+			return RawTask{}, fmt.Errorf("done: %w", err)
+		}
+		task.Done = true
+		task.DoneDate = d.Format("2006-01-02")
+	}
+
+	labels := make([]string, 0, len(tags))
+	for _, t := range tags {
+		labels = append(labels, strings.TrimPrefix(strings.TrimSpace(t), "#"))
+	}
+	if len(labels) > 0 {
+		task.Labels = labels
+	}
+
+	return task, nil
 }
 
 // DiffTasks compares old and new content, returns added/removed/unchanged tasks.

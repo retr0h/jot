@@ -34,6 +34,7 @@ import (
 // Subcommands:
 //
 //	list   list tasks, optionally filtered by status or tag
+//	add    add a task to a note, creating the note if needed
 //	done   mark a task as complete by slug + description
 //	due    show tasks due within a time period
 var taskCmd = &cobra.Command{
@@ -43,6 +44,7 @@ var taskCmd = &cobra.Command{
 
 func init() {
 	taskCmd.AddCommand(taskListCmd)
+	taskCmd.AddCommand(taskAddCmd)
 	taskCmd.AddCommand(taskDoneCmd)
 	taskCmd.AddCommand(taskDueCmd)
 	rootCmd.AddCommand(taskCmd)

@@ -90,6 +90,145 @@ Hello world.
 	}
 }
 
+// ─── EncryptNote ────────────────────────────────────────────────────────────
+
+const plainNote = "---\ntitle: \"Plain\"\ntags: [ops]\ncreated: 2026-05-14\n---\n\nSecret body.\n"
+
+func TestEncryptNote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		slug    string
+		setup   func(t *testing.T, svc *jot.Service)
+		wantErr bool
+	}{
+		{
+			name: "moves the body into the vault and keeps the frontmatter",
+			slug: "plain",
+			setup: func(t *testing.T, svc *jot.Service) {
+				writeNote(t, svc.NotesDir, "plain", plainNote)
+			},
+		},
+		{
+			name: "already encrypted note returns error",
+			slug: "plain",
+			setup: func(t *testing.T, svc *jot.Service) {
+				writeNote(t, svc.NotesDir, "plain", plainNote)
+				if err := svc.EncryptNote("plain"); err != nil {
+					t.Fatalf("setup encrypt: %v", err)
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name:    "missing note returns error",
+			slug:    "no-such-note",
+			setup:   func(_ *testing.T, _ *jot.Service) {},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc := newSecureSvc(t, t.TempDir())
+			tt.setup(t, svc)
+
+			err := svc.EncryptNote(tt.slug)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("EncryptNote: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("EncryptNote: unexpected error: %v", err)
+			}
+
+			data, err := os.ReadFile(filepath.Join(svc.NotesDir, tt.slug+".md"))
+			if err != nil {
+				t.Fatalf("read note: %v", err)
+			}
+			if !strings.Contains(string(data), "secure: true") ||
+				!strings.Contains(string(data), "tags: [ops]") ||
+				strings.Contains(string(data), "Secret body.") {
+				t.Errorf("file after encrypt = %q", data)
+			}
+			body, err := svc.CatNote(tt.slug)
+			if err != nil || !strings.Contains(body, "Secret body.") {
+				t.Errorf("CatNote after encrypt = %q, %v", body, err)
+			}
+		})
+	}
+}
+
+// ─── DecryptNote ────────────────────────────────────────────────────────────
+
+func TestDecryptNote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		slug    string
+		setup   func(t *testing.T, svc *jot.Service)
+		wantErr bool
+	}{
+		{
+			name: "restores the body to the file",
+			slug: "plain",
+			setup: func(t *testing.T, svc *jot.Service) {
+				writeNote(t, svc.NotesDir, "plain", plainNote)
+				if err := svc.EncryptNote("plain"); err != nil {
+					t.Fatalf("setup encrypt: %v", err)
+				}
+			},
+		},
+		{
+			name: "plaintext note returns error",
+			slug: "plain",
+			setup: func(t *testing.T, svc *jot.Service) {
+				writeNote(t, svc.NotesDir, "plain", plainNote)
+			},
+			wantErr: true,
+		},
+		{
+			name:    "missing note returns error",
+			slug:    "no-such-note",
+			setup:   func(_ *testing.T, _ *jot.Service) {},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc := newSecureSvc(t, t.TempDir())
+			tt.setup(t, svc)
+
+			err := svc.DecryptNote(tt.slug)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("DecryptNote: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DecryptNote: unexpected error: %v", err)
+			}
+
+			data, err := os.ReadFile(filepath.Join(svc.NotesDir, tt.slug+".md"))
+			if err != nil {
+				t.Fatalf("read note: %v", err)
+			}
+			if strings.Contains(string(data), "secure: true") ||
+				!strings.Contains(string(data), "Secret body.") {
+				t.Errorf("file after decrypt = %q", data)
+			}
+		})
+	}
+}
+
 // ─── CreateNote ─────────────────────────────────────────────────────────────
 
 func TestCreateNote(t *testing.T) {
@@ -99,11 +238,20 @@ func TestCreateNote(t *testing.T) {
 		name        string
 		title       string
 		content     string
+		secure      bool
 		dir         func(t *testing.T) string
 		wantSlugSub string
 		wantBodySub string
 		wantErr     bool
 	}{
+		{
+			name:        "secure note keeps only frontmatter on disk",
+			title:       "Vault Note",
+			content:     "Top secret.",
+			secure:      true,
+			wantSlugSub: "vault-note",
+			wantBodySub: "secure: true",
+		},
 		{
 			name:        "creates note with content",
 			title:       "Test Note",
@@ -145,8 +293,11 @@ func TestCreateNote(t *testing.T) {
 				dir = t.TempDir()
 			}
 			svc := newSvc(dir)
+			if tt.secure {
+				svc = newSecureSvc(t, dir)
+			}
 
-			slug, path, err := svc.CreateNote(tt.title, tt.content, false)
+			slug, path, err := svc.CreateNote(tt.title, tt.content, tt.secure)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("CreateNote: expected error, got nil")
@@ -166,6 +317,12 @@ func TestCreateNote(t *testing.T) {
 			}
 			if !strings.Contains(string(data), tt.wantBodySub) {
 				t.Errorf("file content = %q, want substring %q", string(data), tt.wantBodySub)
+			}
+			if tt.secure {
+				body, err := svc.CatNote(slug)
+				if strings.Contains(string(data), tt.content) || err != nil || body != tt.content {
+					t.Errorf("secure note: file %q, CatNote = %q, %v", data, body, err)
+				}
 			}
 		})
 	}
@@ -394,6 +551,200 @@ func TestMarkTaskDone(t *testing.T) {
 			}
 			if !strings.Contains(string(data), "[x]") {
 				t.Error("expected task to be marked done with [x]")
+			}
+		})
+	}
+}
+
+// ─── AddTask ────────────────────────────────────────────────────────────────
+
+func TestAddTask(t *testing.T) {
+	t.Parallel()
+
+	done := jot.RawTask{
+		Description: "Merged !20",
+		Done:        true,
+		DoneDate:    "2026-11-02",
+		Labels:      []string{"cos"},
+	}
+
+	tests := []struct {
+		name    string
+		slug    string
+		title   string
+		task    jot.RawTask
+		setup   func(t *testing.T, dir string)
+		want    []string // substrings of the resulting file
+		wantErr bool
+	}{
+		{
+			name:  "creates a nested note with its title and the task",
+			slug:  "done/2026-11-02",
+			title: "Done 2026-11-02",
+			task:  done,
+			setup: func(_ *testing.T, _ string) {},
+			want: []string{
+				`title: "Done 2026-11-02"`,
+				"# Done 2026-11-02\n",
+				"\n- [x] Merged !20 | done:2026-11-02 #cos\n",
+			},
+		},
+		{
+			name:  "title defaults to the slug's last segment",
+			slug:  "inbox/todo",
+			task:  jot.RawTask{Description: "call Sam"},
+			setup: func(_ *testing.T, _ string) {},
+			want:  []string{`title: "todo"`, "- [ ] call Sam\n"},
+		},
+		{
+			name: "appends to an existing note without a trailing newline",
+			slug: "tasks-note",
+			task: jot.RawTask{
+				Description: "Tag release",
+				DueDate:     "2026-05-20",
+				Labels:      []string{"ops"},
+			},
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "tasks-note", strings.TrimRight(testNote, "\n"))
+			},
+			want: []string{"title: \"Test Note\"", "\n- [ ] Tag release | due:2026-05-20 #ops\n"},
+		},
+		{
+			name:  "done without a date is done today",
+			slug:  "today",
+			task:  jot.RawTask{Description: "x", Done: true},
+			setup: func(_ *testing.T, _ string) {},
+			want:  []string{"- [x] x | done:"},
+		},
+		{
+			name: "note path blocked by a file is a read error",
+			slug: "blocker/note",
+			task: done,
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "blocker", testNote)
+				if err := os.Rename(filepath.Join(dir, "blocker.md"), filepath.Join(dir, "blocker")); err != nil {
+					t.Fatalf("setup: %v", err)
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "folder that cannot be created",
+			slug: "locked/sub/note",
+			task: done,
+			setup: func(t *testing.T, dir string) {
+				if err := os.Mkdir(filepath.Join(dir, "locked"), 0o500); err != nil {
+					t.Fatalf("setup: %v", err)
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name:    "empty slug",
+			task:    done,
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "slug escaping the notes dir",
+			slug:    "../outside",
+			task:    done,
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "empty description",
+			slug:    "n",
+			task:    jot.RawTask{Description: "   "},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "description with a pipe",
+			slug:    "n",
+			task:    jot.RawTask{Description: "a | b"},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "multi-line description",
+			slug:    "n",
+			task:    jot.RawTask{Description: "a\nb"},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "description with an inline tag",
+			slug:    "n",
+			task:    jot.RawTask{Description: "replied in #eng-sensor"},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "invalid tag",
+			slug:    "n",
+			task:    jot.RawTask{Description: "x", Labels: []string{"two words"}},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name:    "invalid date",
+			slug:    "n",
+			task:    jot.RawTask{Description: "x", DueDate: "friday"},
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name: "secure note is refused",
+			slug: "vault",
+			task: done,
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "vault", "---\ntitle: \"v\"\ntags: []\nsecure: true\n---\n")
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			tt.setup(t, dir)
+			svc := newSvc(dir)
+
+			err := svc.AddTask(tt.slug, tt.title, tt.task)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("AddTask: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("AddTask: unexpected error: %v", err)
+			}
+
+			data, err := os.ReadFile(filepath.Join(dir, tt.slug+".md"))
+			if err != nil {
+				t.Fatalf("read note: %v", err)
+			}
+			for _, sub := range tt.want {
+				if !strings.Contains(string(data), sub) {
+					t.Errorf("note = %q, want substring %q", data, sub)
+				}
+			}
+
+			// Round trip: the parser reads back exactly the task written.
+			tasks, err := svc.AllTasks("all", "")
+			if err != nil {
+				t.Fatalf("AllTasks: %v", err)
+			}
+			last := tasks[len(tasks)-1]
+			if last.Description != strings.TrimSpace(tt.task.Description) {
+				t.Errorf(
+					"round trip description = %q, want %q",
+					last.Description,
+					tt.task.Description,
+				)
 			}
 		})
 	}

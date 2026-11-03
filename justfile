@@ -15,6 +15,9 @@ md_site_dir := ""
 
 go_coverage_target := "84"
 
+default:
+    @just --list
+
 # --- Fetch ---
 
 # Fetch shared justfiles from osapi-justfiles

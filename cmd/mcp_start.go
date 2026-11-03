@@ -28,6 +28,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/retr0h/jot/internal/gitops"
 	"github.com/retr0h/jot/internal/jot"
 	mcppkg "github.com/retr0h/jot/internal/mcp"
 )
@@ -60,10 +61,15 @@ var mcpStartCmd = &cobra.Command{
 			Prompt:   nil,
 		}
 
-		s, err := mcppkg.New(mcppkg.Config{
+		cfg := mcppkg.Config{
 			Store:  svc,
 			Logger: logger,
-		})
+		}
+		if repo, err := gitops.OpenRepo(notesDir); err == nil {
+			cfg.Committer = repo
+		}
+
+		s, err := mcppkg.New(cfg)
 		if err != nil {
 			return fmt.Errorf("mcp start: %w", err)
 		}

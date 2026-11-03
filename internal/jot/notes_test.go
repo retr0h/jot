@@ -21,11 +21,17 @@
 package jot_test
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/retr0h/jot/internal/jot"
 )
@@ -58,6 +64,35 @@ func writeNote(t *testing.T, dir, slug, content string) string {
 // newSvc returns a Service rooted at dir with no encryption config.
 func newSvc(dir string) *jot.Service {
 	return &jot.Service{NotesDir: dir}
+}
+
+// newSecureSvc returns a Service whose notes dir holds a kvlt vault keyed to
+// a throwaway ed25519 SSH key, so secure-note paths run without real keys.
+func newSecureSvc(t *testing.T, dir string) *jot.Service {
+	t.Helper()
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	block, err := ssh.MarshalPrivateKey(priv, "")
+	if err != nil {
+		t.Fatalf("marshal key: %v", err)
+	}
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+	sshPub, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatalf("public key: %v", err)
+	}
+	recipient := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub)))
+	if err := jot.InitVault(dir, []string{recipient}); err != nil {
+		t.Fatalf("init vault: %v", err)
+	}
+
+	return &jot.Service{NotesDir: dir, SSHKeys: []string{keyPath}}
 }
 
 // ─── ReadNoteByPath ───────────────────────────────────────────────────────────
