@@ -290,7 +290,12 @@ func (s *Service) renameNote(
 	if err != nil {
 		return "", err
 	}
-	newSlug := NewSlug(newTitle, time.Now())
+	// A dated note gets today's date with its new name; an undated one,
+	// such as a memory topic, stays undated.
+	newSlug, err := noteName(newTitle, datedRe.MatchString(path.Base(oldSlug)))
+	if err != nil {
+		return "", err
+	}
 	if dir := path.Dir(oldSlug); dir != "." {
 		newSlug = dir + "/" + newSlug
 	}
@@ -462,18 +467,22 @@ func (s *Service) ReadAllNotes() ([]*Note, error) {
 }
 
 // CreateNote creates a new note with the given title and content. A title
-// of "dir/Title" creates the note in that folder. If secure is true, the
-// body is stored in kvlt and the file contains only frontmatter. It refuses
-// to overwrite an existing note. Returns the slug and file path.
+// of "dir/Title" creates the note in that folder. The slug starts with
+// today's date unless undated is true, for long-lived notes such as memory
+// topics. Content gets jot's title, tags and created fields where its
+// front-matter lacks them. If secure is true, the body is stored in kvlt
+// and the file contains only frontmatter. It refuses to overwrite an
+// existing note. Returns the slug and file path.
 func (s *Service) CreateNote(
 	title string,
 	content string,
 	secure bool,
+	undated bool,
 ) (string, string, error) {
 	var slug, notePath string
 	err := s.write(func() (string, error) {
 		var err error
-		slug, notePath, err = s.createNote(title, content, secure)
+		slug, notePath, err = s.createNote(title, content, secure, undated)
 		scope := "note"
 		if secure {
 			scope = "note(secure)"
@@ -487,12 +496,17 @@ func (s *Service) createNote(
 	title string,
 	content string,
 	secure bool,
+	undated bool,
 ) (string, string, error) {
 	dir := ""
 	if i := strings.LastIndex(title, "/"); i >= 0 {
 		dir, title = title[:i], title[i+1:]
 	}
-	slug, notePath, err := slugPath(s.NotesDir, path.Join(dir, NewSlug(title, time.Now())))
+	name, err := noteName(title, !undated)
+	if err != nil {
+		return "", "", err
+	}
+	slug, notePath, err := slugPath(s.NotesDir, path.Join(dir, name))
 	if err != nil {
 		return "", "", err
 	}
@@ -521,9 +535,9 @@ func (s *Service) createNote(
 			return "", "", fmt.Errorf("write note file: %w", err)
 		}
 	} else {
-		body := content
-		if body == "" {
-			body = ScaffoldFrontmatter(title, time.Now().Format("2006-01-02"))
+		body := ScaffoldFrontmatter(title, time.Now().Format("2006-01-02"))
+		if content != "" {
+			body = withDefaults(content, title, time.Now().Format("2006-01-02"))
 		}
 		if err := os.WriteFile(notePath, []byte(body), 0o600); err != nil {
 			return "", "", fmt.Errorf("write note file: %w", err)

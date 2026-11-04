@@ -45,7 +45,7 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_note",
-		Description: "Create a new markdown note with YAML front-matter scaffold; a dir/Title title creates it in that folder. Refuses to overwrite. Supports secure (encrypted) creation.",
+		Description: "Create a new markdown note with YAML front-matter scaffold; a dir/Title title creates it in that folder, and undated drops today's date from the slug. Refuses to overwrite. Supports secure (encrypted) creation.",
 	}, s.handleCreateNote)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -126,9 +126,10 @@ type getNoteArgs struct {
 }
 
 type createNoteArgs struct {
-	Title   string `json:"title"            jsonschema:"Note title (used to derive the slug)."`
-	Content string `json:"content"          jsonschema:"Markdown content of the note (optional; scaffold used when empty)."`
-	Secure  bool   `json:"secure,omitempty" jsonschema:"When true, encrypt the note body via kvlt (requires passphrase-free SSH keys)."`
+	Title   string `json:"title"             jsonschema:"Note title (used to derive the slug)."`
+	Content string `json:"content"           jsonschema:"Markdown content of the note (optional; scaffold used when empty)."`
+	Secure  bool   `json:"secure,omitempty"  jsonschema:"When true, encrypt the note body via kvlt (requires passphrase-free SSH keys)."`
+	Undated bool   `json:"undated,omitempty" jsonschema:"When true, name the slug from the title alone, without today's date, for long-lived notes such as memory/Topic."`
 }
 
 type deleteNoteArgs struct {
@@ -252,7 +253,7 @@ func (s *Server) handleCreateNote(
 		return textResult("error: title is required"), nil, nil
 	}
 
-	slug, notePath, err := s.store.CreateNote(args.Title, args.Content, args.Secure)
+	slug, notePath, err := s.store.CreateNote(args.Title, args.Content, args.Secure, args.Undated)
 	if err != nil {
 		return textResult(fmt.Sprintf("error: create note: %v", err)), nil, nil
 	}

@@ -48,7 +48,7 @@ type Store interface {
 	SearchNotes(query string) ([]*jot.Note, error)
 	FindNoteBySlug(slug string) (*jot.Note, error)
 	CatNote(slug string) (string, error)
-	CreateNote(title string, content string, secure bool) (string, string, error)
+	CreateNote(title string, content string, secure bool, undated bool) (string, string, error)
 	DeleteNote(slug string) error
 	EncryptNote(slug string) error
 	DecryptNote(slug string) error
@@ -153,7 +153,8 @@ notes you want to recall.
 - list_notes    list note summaries, optionally filtered by tag (full=true for bodies)
 - search_notes  search titles and bodies; summaries carry the first matching line
 - get_note      read the full markdown content of a note by slug
-- create_note   write a new note; "dir/Title" puts it in a folder; never overwrites
+- create_note   write a new note; "dir/Title" puts it in a folder; never overwrites;
+                undated=true names it without today's date, for memory topics
 - append_note   add text to the end of an existing note
 - update_note   replace a note's body, or the whole file if content has front-matter
 - delete_note   remove a note file from disk

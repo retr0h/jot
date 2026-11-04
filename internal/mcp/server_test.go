@@ -38,7 +38,7 @@ type mockStore struct {
 	searchNotesFn  func(string) ([]*jot.Note, error)
 	findNoteBySlug func(string) (*jot.Note, error)
 	catNoteFn      func(string) (string, error)
-	createNoteFn   func(string, string, bool) (string, string, error)
+	createNoteFn   func(string, string, bool, bool) (string, string, error)
 	deleteNoteFn   func(string) error
 	encryptNoteFn  func(string) error
 	decryptNoteFn  func(string) error
@@ -122,9 +122,12 @@ func (m *mockStore) CatNote(slug string) (string, error) {
 	return "", nil
 }
 
-func (m *mockStore) CreateNote(title, content string, secure bool) (string, string, error) {
+func (m *mockStore) CreateNote(
+	title, content string,
+	secure, undated bool,
+) (string, string, error) {
 	if m.createNoteFn != nil {
-		return m.createNoteFn(title, content, secure)
+		return m.createNoteFn(title, content, secure, undated)
 	}
 	return "slug", "/path/slug.md", nil
 }
@@ -483,7 +486,7 @@ func TestHandleCreateNote(t *testing.T) {
 		{
 			name: "creates note and returns slug and path",
 			store: &mockStore{
-				createNoteFn: func(_, _ string, _ bool) (string, string, error) {
+				createNoteFn: func(_, _ string, _, _ bool) (string, string, error) {
 					return "2026-05-17-my-note", "/notes/2026-05-17-my-note.md", nil
 				},
 			},
@@ -493,7 +496,7 @@ func TestHandleCreateNote(t *testing.T) {
 		{
 			name: "secure flag is reflected",
 			store: &mockStore{
-				createNoteFn: func(_, _ string, secure bool) (string, string, error) {
+				createNoteFn: func(_, _ string, secure, _ bool) (string, string, error) {
 					if !secure {
 						return "", "", fmt.Errorf("expected secure=true")
 					}
@@ -504,9 +507,22 @@ func TestHandleCreateNote(t *testing.T) {
 			wantSub: `"secure": true`,
 		},
 		{
+			name: "undated is passed to the store",
+			store: &mockStore{
+				createNoteFn: func(_, _ string, _, undated bool) (string, string, error) {
+					if !undated {
+						return "", "", fmt.Errorf("expected undated=true")
+					}
+					return "memory/jot", "/notes/memory/jot.md", nil
+				},
+			},
+			args:    createNoteArgs{Title: "memory/Jot", Undated: true},
+			wantSub: `"slug": "memory/jot"`,
+		},
+		{
 			name: "store error returned as text",
 			store: &mockStore{
-				createNoteFn: func(_, _ string, _ bool) (string, string, error) {
+				createNoteFn: func(_, _ string, _, _ bool) (string, string, error) {
 					return "", "", fmt.Errorf("permission denied")
 				},
 			},

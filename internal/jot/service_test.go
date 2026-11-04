@@ -229,7 +229,7 @@ func TestDecryptNote(t *testing.T) {
 		{
 			name: "a note created secure in a folder gets a blank line before its body",
 			setup: func(t *testing.T, svc *jot.Service) string {
-				slug, _, err := svc.CreateNote("ops/Vault", "Top secret.", true)
+				slug, _, err := svc.CreateNote("ops/Vault", "Top secret.", true, false)
 				if err != nil {
 					t.Fatalf("setup create: %v", err)
 				}
@@ -584,15 +584,20 @@ func TestUpdateNote(t *testing.T) {
 func TestCreateNote(t *testing.T) {
 	t.Parallel()
 
+	today := time.Now().Format("2006-01-02")
+	defaults := "title: \"Jot\"\ntags: []\ncreated: " + today + "\n"
+
 	tests := []struct {
 		name        string
 		title       string
 		content     string
 		secure      bool
+		undated     bool
 		dir         func(t *testing.T) string
 		before      func(t *testing.T, svc *jot.Service)
 		wantSlugSub string
 		wantBodySub string
+		wantFile    string // the whole file, when set
 		wantErr     bool
 	}{
 		{
@@ -600,6 +605,60 @@ func TestCreateNote(t *testing.T) {
 			title:       "ops/Runbook",
 			wantSlugSub: "ops/",
 			wantBodySub: "title: \"Runbook\"",
+		},
+		{
+			name:        "undated names the slug from the title alone",
+			title:       "memory/Jot",
+			undated:     true,
+			wantSlugSub: "memory/jot",
+			wantBodySub: defaults,
+		},
+		{
+			name:    "an existing undated note is not overwritten",
+			title:   "memory/Jot",
+			undated: true,
+			before: func(t *testing.T, svc *jot.Service) {
+				if _, _, err := svc.CreateNote("memory/Jot", "first", false, true); err != nil {
+					t.Fatalf("setup create: %v", err)
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name:    "a title with no letters or digits returns error",
+			title:   "memory/!!!",
+			wantErr: true,
+		},
+		{
+			name:     "supplied front-matter gains the missing defaults",
+			title:    "Jot",
+			content:  "---\ndescription: \"Agent memory\"\n---\n\nbody\n",
+			wantFile: "---\n" + defaults + "description: \"Agent memory\"\n---\n\nbody\n",
+		},
+		{
+			name:     "supplied fields win over the defaults",
+			title:    "Jot",
+			content:  "---\n\"title\": \"Mine\"\ntags: [ops]\ncreated: 2026-01-01\n---\n\nbody\n",
+			wantFile: "---\n\"title\": \"Mine\"\ntags: [ops]\ncreated: 2026-01-01\n---\n\nbody\n",
+		},
+		{
+			name:    "CRLF front-matter keeps its line endings",
+			title:   "Jot",
+			content: "---\r\ndescription: x\r\n---\r\n\r\nbody\r\n",
+			wantFile: "---\r\ntitle: \"Jot\"\r\ntags: []\r\ncreated: " + today +
+				"\r\ndescription: x\r\n---\r\n\r\nbody\r\n",
+		},
+		{
+			name:     "a block that ends the content keeps its closing line",
+			title:    "Jot",
+			content:  "---\ndescription: x\n---",
+			wantFile: "---\n" + defaults + "description: x\n---",
+		},
+		{
+			name:     "content without front-matter gets a whole block",
+			title:    "Jot",
+			content:  "Hello.",
+			wantFile: "---\n" + defaults + "---\n\nHello.",
 		},
 		{
 			name:    "a folder escaping the notes dir returns error",
@@ -618,7 +677,7 @@ func TestCreateNote(t *testing.T) {
 			name:  "an existing note is not overwritten",
 			title: "Twice",
 			before: func(t *testing.T, svc *jot.Service) {
-				if _, _, err := svc.CreateNote("Twice", "first", false); err != nil {
+				if _, _, err := svc.CreateNote("Twice", "first", false, false); err != nil {
 					t.Fatalf("setup create: %v", err)
 				}
 			},
@@ -680,7 +739,7 @@ func TestCreateNote(t *testing.T) {
 				tt.before(t, svc)
 			}
 
-			slug, path, err := svc.CreateNote(tt.title, tt.content, tt.secure)
+			slug, path, err := svc.CreateNote(tt.title, tt.content, tt.secure, tt.undated)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("CreateNote: expected error, got nil")
@@ -700,6 +759,9 @@ func TestCreateNote(t *testing.T) {
 			}
 			if !strings.Contains(string(data), tt.wantBodySub) {
 				t.Errorf("file content = %q, want substring %q", string(data), tt.wantBodySub)
+			}
+			if tt.wantFile != "" && string(data) != tt.wantFile {
+				t.Errorf("file content = %q, want %q", data, tt.wantFile)
 			}
 			if tt.secure {
 				body, err := svc.CatNote(slug)
@@ -773,6 +835,8 @@ func TestDeleteNote(t *testing.T) {
 func TestRenameNote(t *testing.T) {
 	t.Parallel()
 
+	today := time.Now().Format("2006-01-02")
+
 	tests := []struct {
 		name       string
 		oldSlug    string
@@ -783,6 +847,43 @@ func TestRenameNote(t *testing.T) {
 		check      func(t *testing.T, svc *jot.Service, newSlug string)
 		wantErr    bool
 	}{
+		{
+			name:     "an undated note stays undated",
+			oldSlug:  "memory/jot",
+			newTitle: "Agents",
+			setup: func(t *testing.T, dir string) {
+				if err := os.MkdirAll(filepath.Join(dir, "memory"), 0o700); err != nil {
+					t.Fatalf("mkdir: %v", err)
+				}
+				writeNote(t, dir, "memory/jot", "---\ntitle: \"Jot\"\ntags: []\n---\n\nbody\n")
+			},
+			check: func(t *testing.T, _ *jot.Service, newSlug string) {
+				if newSlug != "memory/agents" {
+					t.Errorf("newSlug = %q, want %q", newSlug, "memory/agents")
+				}
+			},
+		},
+		{
+			name:     "a dated note gets today's date",
+			oldSlug:  "2026-01-02-standup",
+			newTitle: "Retro",
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "2026-01-02-standup", "---\ntitle: \"Standup\"\ntags: []\n---\n")
+			},
+			wantNewSub: today + "-retro",
+		},
+		{
+			name:     "a title with no letters or digits returns error",
+			oldSlug:  "memory/jot",
+			newTitle: "!!!",
+			setup: func(t *testing.T, dir string) {
+				if err := os.MkdirAll(filepath.Join(dir, "memory"), 0o700); err != nil {
+					t.Fatalf("mkdir: %v", err)
+				}
+				writeNote(t, dir, "memory/jot", "# Jot\n")
+			},
+			wantErr: true,
+		},
 		{
 			name:     "a note in a folder stays there, and both link forms follow it",
 			oldSlug:  "ops/old-note",
@@ -837,7 +938,7 @@ func TestRenameNote(t *testing.T) {
 				}
 				writeNote(t, dir, "ops/vault", "---\ntitle: \"Vault\"\ntags: []\n---\n\nsecret\n")
 			},
-			wantNewSub: "-new-vault",
+			wantNewSub: "ops/new-vault",
 			check: func(t *testing.T, svc *jot.Service, newSlug string) {
 				if body, err := svc.CatNote(newSlug); err != nil || body != "\nsecret\n" {
 					t.Errorf("CatNote(%q) = %q, %v; want %q", newSlug, body, err, "\nsecret\n")
@@ -1544,7 +1645,7 @@ func TestServiceCommitter(t *testing.T) {
 				_, err := svc.RenameNote("mem", "Memory")
 				return err
 			},
-			want: []string{"note: rename mem -> " + today + "-memory"},
+			want: []string{"note: rename mem -> memory"},
 		},
 		{
 			name: "task done",
@@ -1566,7 +1667,7 @@ func TestServiceCommitter(t *testing.T) {
 		{
 			name: "create",
 			op: func(svc *jot.Service) error {
-				_, _, err := svc.CreateNote("ops/Fresh", "", false)
+				_, _, err := svc.CreateNote("ops/Fresh", "", false, false)
 				return err
 			},
 			want: []string{"note: add ops/" + today + "-fresh"},
@@ -1574,7 +1675,7 @@ func TestServiceCommitter(t *testing.T) {
 		{
 			name: "create secure",
 			op: func(svc *jot.Service) error {
-				_, _, err := svc.CreateNote("Vault", "secret", true)
+				_, _, err := svc.CreateNote("Vault", "secret", true, false)
 				return err
 			},
 			secure: true,
@@ -1661,7 +1762,7 @@ func TestServiceCommitter_concurrent(t *testing.T) {
 	errs := make(chan error, writers)
 	for i := range writers {
 		wg.Go(func() {
-			_, _, err := svc.CreateNote(fmt.Sprintf("Note %d", i), "", false)
+			_, _, err := svc.CreateNote(fmt.Sprintf("Note %d", i), "", false, false)
 			errs <- err
 		})
 	}
