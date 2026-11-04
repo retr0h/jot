@@ -26,11 +26,14 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/retr0h/kvlt/pkg/kvlt"
+
+	"github.com/retr0h/jot/internal/lock"
 )
 
 // Service holds configuration state and provides all jot domain operations
@@ -39,6 +42,30 @@ type Service struct {
 	NotesDir string
 	SSHKeys  []string
 	Prompt   kvlt.PassphrasePrompt
+	// Committer, when set, commits each write while the write lock is still
+	// held, so concurrent writers never fold one another's changes together.
+	Committer Committer
+}
+
+// Committer commits the notes repository for a caller that holds its write
+// lock; *gitops.Repo satisfies it.
+type Committer interface {
+	CommitHeld(subject string) error
+}
+
+// write runs fn under the notes dir's write lock and, when fn succeeds,
+// commits with the subject fn returns before releasing the lock.
+func (s *Service) write(fn func() (string, error)) error {
+	return lock.With(s.NotesDir, func() error {
+		subject, err := fn()
+		if err != nil || s.Committer == nil {
+			return err
+		}
+		if err := s.Committer.CommitHeld(subject); err != nil {
+			return fmt.Errorf("saved, but the commit failed: %w", err)
+		}
+		return nil
+	})
 }
 
 // CatNote returns the body of a note by slug, transparently decrypting
@@ -54,15 +81,22 @@ func (s *Service) CatNote(slug string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("open secure store: %w", err)
 		}
-		return store.ReadNote(context.Background(), slug)
+		return store.ReadNote(context.Background(), vaultKey(note.Slug))
 	}
 
 	return note.Body, nil
 }
 
 // EncryptNote encrypts an existing plaintext note. The body is stored in
-// kvlt and the .md file is rewritten with secure: true.
+// kvlt and the .md file keeps its front-matter, every field as written,
+// plus secure: true.
 func (s *Service) EncryptNote(slug string) error {
+	return s.write(func() (string, error) {
+		return "note(secure): encrypt " + slug, s.encryptNote(slug)
+	})
+}
+
+func (s *Service) encryptNote(slug string) error {
 	note, err := findNote(s.NotesDir, slug)
 	if err != nil {
 		return err
@@ -76,17 +110,12 @@ func (s *Service) EncryptNote(slug string) error {
 		return fmt.Errorf("open secure store: %w", err)
 	}
 
-	if err := store.WriteNote(context.Background(), slug, note.Body); err != nil {
+	_, body, _ := splitFrontmatter(note.raw)
+	if err := store.WriteNote(context.Background(), vaultKey(note.Slug), body); err != nil {
 		return err
 	}
 
-	scaffold := fmt.Sprintf(
-		"---\ntitle: %q\ntags: [%s]\ncreated: %s\nsecure: true\n---\n",
-		note.Title,
-		FormatTags(note.Tags),
-		note.Created,
-	)
-	if err := os.WriteFile(note.Path, []byte(scaffold), 0o600); err != nil {
+	if err := os.WriteFile(note.Path, []byte(setSecure(noteHead(note), true)), 0o600); err != nil {
 		return fmt.Errorf("rewrite note file: %w", err)
 	}
 
@@ -94,8 +123,15 @@ func (s *Service) EncryptNote(slug string) error {
 }
 
 // DecryptNote restores a secure note to plaintext. The body is read from
-// kvlt, written back into the .md file, and removed from the vault.
+// kvlt, written back under the note's front-matter, and removed from the
+// vault.
 func (s *Service) DecryptNote(slug string) error {
+	return s.write(func() (string, error) {
+		return "note(secure): decrypt " + slug, s.decryptNote(slug)
+	})
+}
+
+func (s *Service) decryptNote(slug string) error {
 	note, err := findNote(s.NotesDir, slug)
 	if err != nil {
 		return err
@@ -109,39 +145,156 @@ func (s *Service) DecryptNote(slug string) error {
 		return fmt.Errorf("open secure store: %w", err)
 	}
 
-	body, err := store.ReadNote(context.Background(), slug)
+	body, err := store.ReadNote(context.Background(), vaultKey(note.Slug))
 	if err != nil {
 		return err
 	}
 
-	content := fmt.Sprintf(
-		"---\ntitle: %q\ntags: [%s]\ncreated: %s\n---\n\n%s",
-		note.Title,
-		FormatTags(note.Tags),
-		note.Created,
-		body,
-	)
+	if !strings.HasPrefix(body, "\n") && !strings.HasPrefix(body, "\r\n") {
+		body = "\n" + body
+	}
+	content := setSecure(noteHead(note), false) + body
 	if err := os.WriteFile(note.Path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("rewrite note file: %w", err)
 	}
 
-	if err := store.DeleteNote(context.Background(), slug); err != nil {
+	if err := store.DeleteNote(context.Background(), vaultKey(note.Slug)); err != nil {
 		return fmt.Errorf("remove from secure store: %w", err)
 	}
 
 	return nil
 }
 
-// RenameNote renames a note file, rewrites its frontmatter title and first
-// heading, and updates all [[wikilinks]]. Returns the new slug.
+// noteHead returns note's front-matter block as written, or one rebuilt from
+// its parsed fields when the file has no "---" block to keep.
+func noteHead(n *Note) string {
+	if head, _, ok := splitFrontmatter(n.raw); ok {
+		return head
+	}
+	return fmt.Sprintf(
+		"---\ntitle: %q\ntags: [%s]\ncreated: %s\n---\n",
+		n.Title,
+		FormatTags(n.Tags),
+		n.Created,
+	)
+}
+
+// AppendNote adds text to the end of an existing note's body. A secure
+// note's body is updated in the vault.
+func (s *Service) AppendNote(
+	slug string,
+	text string,
+) error {
+	text = strings.TrimRight(text, "\n")
+	if strings.TrimSpace(text) == "" {
+		return fmt.Errorf("text to append is required")
+	}
+	return s.write(func() (string, error) {
+		return "note: append to " + slug, s.rewriteBody(slug, func(body string) string {
+			if body != "" && !strings.HasSuffix(body, "\n") {
+				body += "\n"
+			}
+			return body + text + "\n"
+		})
+	})
+}
+
+// UpdateNote replaces an existing note's body and keeps its front-matter.
+// Content that opens with its own "---" front-matter block replaces the
+// whole file instead. Neither form can change whether a note is encrypted;
+// encrypt_note and decrypt_note do that.
+func (s *Service) UpdateNote(
+	slug string,
+	content string,
+) error {
+	return s.write(func() (string, error) {
+		return "note: update " + slug, s.updateNote(slug, content)
+	})
+}
+
+func (s *Service) updateNote(
+	slug string,
+	content string,
+) error {
+	if _, _, whole := splitFrontmatter(content); !whole {
+		return s.rewriteBody(slug, func(string) string { return content })
+	}
+	if fm, _ := ParseFrontmatter(content); fm.Secure {
+		return fmt.Errorf("content sets secure: true; encrypt the note instead")
+	}
+	note, err := findNote(s.NotesDir, slug)
+	if err != nil {
+		return err
+	}
+	if note.Secure {
+		return fmt.Errorf("note %q is encrypted; update its body without front-matter", slug)
+	}
+	return os.WriteFile(note.Path, []byte(content), 0o600)
+}
+
+// rewriteBody replaces a note's body with edit(body), keeping its
+// front-matter byte for byte. A secure note's body lives in the vault.
+func (s *Service) rewriteBody(
+	slug string,
+	edit func(body string) string,
+) error {
+	note, err := findNote(s.NotesDir, slug)
+	if err != nil {
+		return err
+	}
+
+	if note.Secure {
+		store, err := NewSecureStore(s.NotesDir, s.SSHKeys, s.Prompt)
+		if err != nil {
+			return fmt.Errorf("open secure store: %w", err)
+		}
+		body, err := store.ReadNote(context.Background(), vaultKey(note.Slug))
+		if err != nil {
+			return err
+		}
+		return store.WriteNote(context.Background(), vaultKey(note.Slug), edit(body))
+	}
+
+	head, body, hasHead := splitFrontmatter(note.raw)
+	body = edit(body)
+	if hasHead && !strings.HasPrefix(body, "\n") {
+		body = "\n" + body
+	}
+	if !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	return os.WriteFile(note.Path, []byte(head+body), 0o600)
+}
+
+// RenameNote renames a note file within its folder, rewrites its
+// frontmatter title and first heading, and updates all [[wikilinks]].
+// Returns the new slug.
 func (s *Service) RenameNote(
 	oldSlug string,
 	newTitle string,
 ) (string, error) {
-	newSlug := NewSlug(newTitle, time.Now())
+	var newSlug string
+	err := s.write(func() (string, error) {
+		var err error
+		newSlug, err = s.renameNote(oldSlug, newTitle)
+		return fmt.Sprintf("note: rename %s -> %s", oldSlug, newSlug), err
+	})
+	return newSlug, err
+}
 
-	oldPath := filepath.Join(s.NotesDir, oldSlug+".md")
-	newPath := filepath.Join(s.NotesDir, newSlug+".md")
+func (s *Service) renameNote(
+	oldSlug string,
+	newTitle string,
+) (string, error) {
+	oldSlug, oldPath, err := slugPath(s.NotesDir, oldSlug)
+	if err != nil {
+		return "", err
+	}
+	newSlug := NewSlug(newTitle, time.Now())
+	if dir := path.Dir(oldSlug); dir != "." {
+		newSlug = dir + "/" + newSlug
+	}
+	newPath := filepath.Join(s.NotesDir, filepath.FromSlash(newSlug)+".md")
 
 	content, err := os.ReadFile(oldPath)
 	if err != nil {
@@ -149,6 +302,15 @@ func (s *Service) RenameNote(
 	}
 
 	updated := RewriteNoteTitle(string(content), newTitle)
+
+	// A secure note's body lives in the vault under its slug, so it is copied
+	// to the new slug first and the old entry removed only after the rename.
+	fm, _ := ParseFrontmatter(string(content))
+	if fm.Secure {
+		if err := s.copyVaultEntry(oldSlug, newSlug); err != nil {
+			return "", err
+		}
+	}
 
 	if err := os.MkdirAll(filepath.Dir(newPath), 0o700); err != nil {
 		return "", fmt.Errorf("create dir for %q: %w", newSlug, err)
@@ -161,8 +323,52 @@ func (s *Service) RenameNote(
 	}
 
 	_ = RewriteWikiLinks(s.NotesDir, oldSlug, newSlug)
+	// Links can name a note in a folder by its file name alone, unless
+	// another note still has that name and the link may mean it.
+	if base := path.Base(oldSlug); base != oldSlug && !nameTaken(s.NotesDir, base) {
+		_ = RewriteWikiLinks(s.NotesDir, base, path.Base(newSlug))
+	}
+	if fm.Secure {
+		// The copy already succeeded; a failed delete only leaves an orphaned blob.
+		if store, err := NewSecureStore(s.NotesDir, s.SSHKeys, s.Prompt); err == nil {
+			_ = store.DeleteNote(context.Background(), vaultKey(oldSlug))
+		}
+	}
 
 	return newSlug, nil
+}
+
+// copyVaultEntry copies a secure note's body from one slug's vault key to
+// another's.
+func (s *Service) copyVaultEntry(
+	from string,
+	to string,
+) error {
+	store, err := NewSecureStore(s.NotesDir, s.SSHKeys, s.Prompt)
+	if err != nil {
+		return fmt.Errorf("open secure store: %w", err)
+	}
+	body, err := store.ReadNote(context.Background(), vaultKey(from))
+	if err == nil {
+		err = store.WriteNote(context.Background(), vaultKey(to), body)
+	}
+	return err
+}
+
+// nameTaken reports whether any note in notesDir is named base.md.
+func nameTaken(
+	notesDir string,
+	base string,
+) bool {
+	taken := false
+	_ = filepath.WalkDir(notesDir, func(_ string, d fs.DirEntry, _ error) error {
+		if d != nil && !d.IsDir() && d.Name() == base+".md" {
+			taken = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return taken
 }
 
 // ListNotes returns all notes, optionally filtered by tag.
@@ -201,13 +407,34 @@ func (s *Service) AllTags() ([]string, error) {
 	return allTags(s.NotesDir)
 }
 
-// MarkTaskDone marks a task as complete in the given note.
+// MarkTaskDone marks done the open task in the given note that desc names:
+// an exact description match, else the only one containing desc.
 func (s *Service) MarkTaskDone(
 	slug string,
 	desc string,
 ) error {
-	notePath := filepath.Join(s.NotesDir, slug+".md")
-	return markTaskDone(notePath, desc)
+	_, notePath, err := slugPath(s.NotesDir, slug)
+	if err != nil {
+		return err
+	}
+	return s.write(func() (string, error) {
+		return fmt.Sprintf("task: done %q in %s", desc, slug), markTaskDone(notePath, desc)
+	})
+}
+
+// MarkTaskDoneAt marks done the open task on line (1-based, as Task.Line
+// reports it) of the given note.
+func (s *Service) MarkTaskDoneAt(
+	slug string,
+	line int,
+) error {
+	_, notePath, err := slugPath(s.NotesDir, slug)
+	if err != nil {
+		return err
+	}
+	return s.write(func() (string, error) {
+		return fmt.Sprintf("task: done line %d in %s", line, slug), markTaskDoneAt(notePath, line)
+	})
 }
 
 // AddTask appends a checkbox task to the note at slug, creating the note
@@ -218,12 +445,15 @@ func (s *Service) AddTask(
 	title string,
 	task RawTask,
 ) error {
-	return addTask(s.NotesDir, slug, title, task)
+	return s.write(func() (string, error) {
+		subject := fmt.Sprintf("task: add %q to %s", strings.TrimSpace(task.Description), slug)
+		return subject, addTask(s.NotesDir, slug, title, task)
+	})
 }
 
 // ReadNoteByPath reads and returns the note at the given absolute path.
 func (s *Service) ReadNoteByPath(path string) (*Note, error) {
-	return readNote(path)
+	return readNote(s.NotesDir, path)
 }
 
 // ReadAllNotes walks the notes directory and returns all notes.
@@ -231,28 +461,55 @@ func (s *Service) ReadAllNotes() ([]*Note, error) {
 	return readAllNotes(s.NotesDir)
 }
 
-// CreateNote creates a new note with the given title and content. If secure
-// is true, the body is stored in kvlt and the file contains only frontmatter.
-// Returns the slug and file path.
+// CreateNote creates a new note with the given title and content. A title
+// of "dir/Title" creates the note in that folder. If secure is true, the
+// body is stored in kvlt and the file contains only frontmatter. It refuses
+// to overwrite an existing note. Returns the slug and file path.
 func (s *Service) CreateNote(
 	title string,
 	content string,
 	secure bool,
 ) (string, string, error) {
-	slug := NewSlug(title, time.Now())
+	var slug, notePath string
+	err := s.write(func() (string, error) {
+		var err error
+		slug, notePath, err = s.createNote(title, content, secure)
+		scope := "note"
+		if secure {
+			scope = "note(secure)"
+		}
+		return scope + ": add " + slug, err
+	})
+	return slug, notePath, err
+}
 
-	if err := os.MkdirAll(s.NotesDir, 0o700); err != nil {
-		return "", "", fmt.Errorf("create notes dir: %w", err)
+func (s *Service) createNote(
+	title string,
+	content string,
+	secure bool,
+) (string, string, error) {
+	dir := ""
+	if i := strings.LastIndex(title, "/"); i >= 0 {
+		dir, title = title[:i], title[i+1:]
+	}
+	slug, notePath, err := slugPath(s.NotesDir, path.Join(dir, NewSlug(title, time.Now())))
+	if err != nil {
+		return "", "", err
 	}
 
-	notePath := filepath.Join(s.NotesDir, slug+".md")
+	if err := os.MkdirAll(filepath.Dir(notePath), 0o700); err != nil {
+		return "", "", fmt.Errorf("create notes dir: %w", err)
+	}
+	if _, err := os.Stat(notePath); err == nil {
+		return "", "", fmt.Errorf("note %q already exists; update or append to it instead", slug)
+	}
 
 	if secure {
 		store, err := NewSecureStore(s.NotesDir, s.SSHKeys, s.Prompt)
 		if err != nil {
 			return "", "", fmt.Errorf("open secure store: %w", err)
 		}
-		if err := store.WriteNote(context.Background(), slug, content); err != nil {
+		if err := store.WriteNote(context.Background(), vaultKey(slug), content); err != nil {
 			return "", "", fmt.Errorf("encrypt note: %w", err)
 		}
 		scaffold := fmt.Sprintf(
@@ -278,7 +535,14 @@ func (s *Service) CreateNote(
 
 // DeleteNote removes the note file for the given slug.
 func (s *Service) DeleteNote(slug string) error {
-	notePath := filepath.Join(s.NotesDir, slug+".md")
+	return s.write(func() (string, error) { return "note: delete " + slug, s.deleteNote(slug) })
+}
+
+func (s *Service) deleteNote(slug string) error {
+	_, notePath, err := slugPath(s.NotesDir, slug)
+	if err != nil {
+		return err
+	}
 	if err := os.Remove(notePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("delete note %q: %w", slug, err)
 	}

@@ -66,7 +66,8 @@ var mcpStartCmd = &cobra.Command{
 			Logger: logger,
 		}
 		if repo, err := gitops.OpenRepo(notesDir); err == nil {
-			cfg.Committer = repo
+			svc.Committer = repo
+			cfg.History = repo
 		}
 
 		s, err := mcppkg.New(cfg)

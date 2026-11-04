@@ -31,6 +31,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/retr0h/jot/internal/gitops"
 	"github.com/retr0h/jot/internal/jot"
 )
 
@@ -55,33 +56,37 @@ type Store interface {
 	AllTasks(status string, tagFilter string) ([]jot.Task, error)
 	TasksDue(from time.Time, to time.Time) ([]jot.Task, error)
 	MarkTaskDone(slug string, desc string) error
+	MarkTaskDoneAt(slug string, line int) error
 	AddTask(slug string, title string, task jot.RawTask) error
+	AppendNote(slug string, text string) error
+	UpdateNote(slug string, content string) error
 	AllTags() ([]string, error)
 }
 
-// Committer records a write in the notes repository; *gitops.Repo
-// satisfies it. Without one, tool writes land on disk uncommitted.
-type Committer interface {
-	Commit(message string) error
+// History reads the notes repository's commit log; *gitops.Repo satisfies
+// it. Without one, the history tool reports that there is no repository.
+type History interface {
+	Log(filename string, limit int) ([]gitops.LogEntry, error)
 }
 
 // ─── Config and Server ───────────────────────────────────────────────────────
 
-// Config bundles the runtime inputs for a jot MCP server.
+// Config bundles the runtime inputs for a jot MCP server. The Store commits
+// its own writes, inside its write lock.
 type Config struct {
-	Store     Store
-	Committer Committer
-	Logger    *slog.Logger
+	Store   Store
+	History History
+	Logger  *slog.Logger
 }
 
 // Server is the jot MCP server. Holds a Store (the narrow consumer
 // surface) used by every tool handler, plus the underlying mcpsdk.Server.
 // Constructed via New; the wire is driven by Run.
 type Server struct {
-	mcp       *mcpsdk.Server
-	store     Store
-	committer Committer
-	logger    *slog.Logger
+	mcp     *mcpsdk.Server
+	store   Store
+	history History
+	logger  *slog.Logger
 }
 
 // New creates an MCP server, registers all tools, and returns a
@@ -105,10 +110,10 @@ func New(cfg Config) (*Server, error) {
 	)
 
 	s := &Server{
-		mcp:       mcpSrv,
-		store:     cfg.Store,
-		committer: cfg.Committer,
-		logger:    cfg.Logger.With(slog.String("subsystem", "mcp")),
+		mcp:     mcpSrv,
+		store:   cfg.Store,
+		history: cfg.History,
+		logger:  cfg.Logger.With(slog.String("subsystem", "mcp")),
 	}
 	s.registerTools()
 	return s, nil
@@ -139,15 +144,25 @@ to the notes git repository, like the CLI's.
 
 ## Notes
 
-Notes are markdown files stored on disk. Each note has a slug (the filename
-without .md), a title, and optional tags in YAML front-matter.
+Notes are markdown files stored on disk. Each note has a slug (its path
+under the notes dir without .md, such as "done/2026-11-03"), a title, and
+optional description and tags in YAML front-matter. A description is a
+one-line summary that list_notes and search_notes return, so keep one on
+notes you want to recall.
 
-- list_notes    list all notes, optionally filtered by tag
+- list_notes    list note summaries, optionally filtered by tag (full=true for bodies)
+- search_notes  search titles and bodies; summaries carry the first matching line
 - get_note      read the full markdown content of a note by slug
-- create_note   write a new markdown note with front-matter scaffold
+- create_note   write a new note; "dir/Title" puts it in a folder; never overwrites
+- append_note   add text to the end of an existing note
+- update_note   replace a note's body, or the whole file if content has front-matter
 - delete_note   remove a note file from disk
-- search_notes  case-insensitive substring search across note titles and bodies
-- rename_note   rename a note and rewrite all [[wikilinks]] referencing it
+- rename_note   rename a note in its folder and rewrite [[wikilinks]] to it
+- history       commits newest first with the notes each changed; pass since
+                (YYYY-MM-DD or RFC 3339) to see what changed since your last session
+
+Writes from every jot process are serialized by a lock, so agents sharing the
+notes dir do not lose each other's edits.
 
 ## Scratch
 
@@ -172,11 +187,11 @@ passphrase-free key in their jot.yaml ssh_keys list.
 ## Tasks
 
 Tasks are checkbox lines embedded in notes. They carry an optional due date
-and optional inline #tags.
+and optional inline #tags. Each listed task has its note_slug and file line.
 
-- list_tasks    list tasks filtered by status (open/done/all) and tag
+- list_tasks    list tasks filtered by status (open/done/all), tag and done_since
 - task_add      append a task to a note, creating the note if needed
-- task_done     mark a task as complete (appends done:YYYY-MM-DD)
+- task_done     mark a task complete by line (from list_tasks) or description
 - tasks_due     list open tasks due today, this_week, or this_month
 
 ## Tags

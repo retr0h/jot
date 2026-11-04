@@ -26,7 +26,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/gitops"
 )
 
 var (
@@ -56,17 +55,9 @@ var noteMvCmd = &cobra.Command{
 			return fmt.Errorf("--title/-t is required")
 		}
 
-		newSlug, err := svc.RenameNote(oldSlug, newTitle)
+		newSlug, err := svc.RenameNote(oldSlug, newTitle) // commits the rename
 		if err != nil {
 			return err
-		}
-
-		if repo, repoErr := gitops.OpenRepo(notesDir); repoErr == nil {
-			msg := gitops.FormatCommitMessage(
-				fmt.Sprintf("note: rename %s -> %s", oldSlug, newSlug),
-				"",
-			)
-			_ = repo.Commit(msg)
 		}
 
 		cli.Print(out, cli.Success(

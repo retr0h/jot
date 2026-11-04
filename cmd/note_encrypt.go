@@ -21,12 +21,9 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/gitops"
 )
 
 var noteEncryptSlugFlag string
@@ -48,16 +45,8 @@ var noteEncryptCmd = &cobra.Command{
 			slug = picked
 		}
 
-		if err := svc.EncryptNote(slug); err != nil {
+		if err := svc.EncryptNote(slug); err != nil { // commits the change
 			return err
-		}
-
-		if repo, err := gitops.OpenRepo(notesDir); err == nil {
-			msg := gitops.FormatCommitMessage(
-				fmt.Sprintf("note(secure): encrypt %s", slug),
-				"",
-			)
-			_ = repo.Commit(msg)
 		}
 
 		cli.Print(out, cli.Success(out, "encrypted: "+cli.Accent(out, slug)))

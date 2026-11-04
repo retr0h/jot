@@ -76,65 +76,39 @@ var noteNewCmd = &cobra.Command{
 			return nil
 		}
 
-		// Support "subdir/Title" notation.
-		subdir := ""
-		title := rawTitle
-		if idx := strings.LastIndex(rawTitle, "/"); idx >= 0 {
-			subdir = rawTitle[:idx]
-			title = rawTitle[idx+1:]
-		}
-
-		slug := jot.NewSlug(title, time.Now())
-		if subdir != "" {
-			slug = subdir + "/" + slug
-		}
-
-		dir := filepath.Dir(filepath.Join(notesDir, slug))
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return fmt.Errorf("create notes dir %q: %w", dir, err)
-		}
-		notePath := filepath.Join(notesDir, slug+".md")
+		// The service creates the note ("subdir/Title" puts it in a folder),
+		// refuses to overwrite an existing one, and commits it.
+		title := rawTitle[strings.LastIndex(rawTitle, "/")+1:]
 
 		if piped {
 			raw, err := io.ReadAll(os.Stdin)
 			if err != nil {
 				return fmt.Errorf("read stdin: %w", err)
 			}
-			body := strings.TrimRight(string(raw), "\n")
-
-			if noteSecureFlag {
-				_, _, err = svc.CreateNote(title, body, true)
-				if err != nil {
-					return err
-				}
-			} else {
-				scaffold := jot.ScaffoldFrontmatter(title, time.Now().Format("2006-01-02"))
-				content := scaffold + body + "\n"
-				if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
-					return fmt.Errorf("write note file %q: %w", notePath, err)
-				}
+			content := strings.TrimRight(string(raw), "\n")
+			if !noteSecureFlag {
+				content = jot.ScaffoldFrontmatter(
+					title,
+					time.Now().Format("2006-01-02"),
+				) + content + "\n"
 			}
-		} else {
-			content := jot.ScaffoldFrontmatter(title, time.Now().Format("2006-01-02"))
-			if err := os.WriteFile(notePath, []byte(content), 0o600); err != nil {
-				return fmt.Errorf("write note file %q: %w", notePath, err)
+			slug, _, err := svc.CreateNote(rawTitle, content, noteSecureFlag)
+			if err != nil {
+				return err
 			}
-			if err := jot.Edit(notePath, ""); err != nil {
-				return fmt.Errorf("edit note: %w", err)
-			}
+			cli.Print(out, cli.Success(out, "note created: "+cli.Accent(out, slug)))
+			return nil
 		}
 
-		// Auto-commit via gitops.
+		slug, notePath, err := svc.CreateNote(rawTitle, "", false)
+		if err != nil {
+			return err
+		}
+		if err := jot.Edit(notePath, ""); err != nil {
+			return fmt.Errorf("edit note: %w", err)
+		}
 		if repo, err := gitops.OpenRepo(notesDir); err == nil {
-			scope := "note"
-			if noteSecureFlag {
-				scope = "note(secure)"
-			}
-			msg := gitops.FormatCommitMessage(
-				fmt.Sprintf("%s: add %s", scope, filepath.Base(slug)),
-				"",
-			)
-			_ = repo.Commit(msg)
+			_ = repo.Commit(gitops.FormatCommitMessage("note: edit "+filepath.Base(slug), ""))
 		}
 
 		cli.Print(out, cli.Success(out, "note created: "+cli.Accent(out, slug)))

@@ -26,35 +26,59 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
 var (
-	headingRe = regexp.MustCompile(`(?m)^#\s+(.+)$`)
-	tagNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_/-]*$`)
-	dateRe    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	headingRe   = regexp.MustCompile(`(?m)^#\s+(.+)$`)
+	tagNameRe   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_/-]*$`)
+	secureKeyRe = regexp.MustCompile(`^\s*["']?secure["']?\s*:`)
 )
+
+// maxMatch caps a search result's matching line, so one long line does not
+// cost an agent more than the summary it came with.
+const maxMatch = 200
 
 // Note is a markdown note backed by a .md file on disk.
 type Note struct {
-	Slug    string   `json:"slug"`
-	Title   string   `json:"title"`
-	Tags    []string `json:"tags"`
-	Secure  bool     `json:"secure"`
-	Created string   `json:"created"`
-	Path    string   `json:"path"`
-	Body    string   `json:"body"`
-	Tasks   []Task   `json:"tasks"`
-	Links   []string `json:"links"`
+	Slug        string   `json:"slug"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags"`
+	Secure      bool     `json:"secure"`
+	Created     string   `json:"created"`
+	Updated     string   `json:"updated"`
+	Path        string   `json:"path"`
+	Body        string   `json:"body"`
+	Tasks       []Task   `json:"tasks"`
+	Links       []string `json:"links"`
+
+	raw string // the file as read, so rewrites can keep its front-matter byte for byte
 }
 
-// Task is a @task item extracted from a note's markdown body.
+// NoteSummary is a note without its body, tasks or links: enough for an
+// agent to pick a note before reading it in full.
+type NoteSummary struct {
+	Slug        string   `json:"slug"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags"`
+	Created     string   `json:"created"`
+	Updated     string   `json:"updated"`
+	Secure      bool     `json:"secure,omitempty"`
+	OpenTasks   int      `json:"open_tasks"`
+	Match       string   `json:"match,omitempty"`
+}
+
+// Task is a checkbox task extracted from a note's markdown body.
 type Task struct {
 	NoteSlug    string   `json:"note_slug"`
 	Description string   `json:"description"`
@@ -62,13 +86,104 @@ type Task struct {
 	DoneDate    string   `json:"done_date"`
 	Tags        []string `json:"tags"`
 	Done        bool     `json:"done"`
-	Line        int      `json:"line"`
+	Line        int      `json:"line"` // 1-based line in the note file
 }
 
-// readNote reads the .md file at path, parses its front-matter, @task markers,
-// and [[wiki-links]], then returns a fully-populated Note. Title falls back to
+// CleanSlug validates a note slug from user or agent input and returns it in
+// canonical form: forward slashes, no ".md" suffix, inside the notes dir.
+// Slugs may name a subdirectory, such as "done/2026-11-03".
+func CleanSlug(slug string) (string, error) {
+	clean := filepath.ToSlash(filepath.Clean(strings.TrimSuffix(slug, ".md")))
+	if strings.TrimSpace(slug) == "" || filepath.IsAbs(slug) || clean == "." || clean == ".." ||
+		strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("invalid note slug %q", slug)
+	}
+	return clean, nil
+}
+
+// slugFor returns the slug of the note file at path: its path relative to
+// notesDir without ".md", or just its base name when it lies outside.
+func slugFor(notesDir string, path string) string {
+	rel, err := filepath.Rel(notesDir, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		rel = filepath.Base(path)
+	}
+	return filepath.ToSlash(strings.TrimSuffix(rel, ".md"))
+}
+
+// vaultDir is where kvlt keeps the "jot" vault's encrypted bodies, relative
+// to the notes dir (kvlt's .kvlt/secrets/{type}/{name}/{key}.age layout).
+const vaultDir = ".kvlt/secrets/local/jot/"
+
+// vaultKey maps a slug to its kvlt key. kvlt keys cannot contain "/", so a
+// folder slug escapes it ("ops%2Frunbook"); slugs without "/" or "%" keep
+// the keys they always had.
+func vaultKey(slug string) string {
+	return strings.NewReplacer("%", "%25", "/", "%2F").Replace(slug)
+}
+
+// NoteSlugForPath maps a path in the notes repository to the slug of the
+// note it stores: a note's .md file, or a secure note's encrypted body. ok
+// is false for any other file.
+func NoteSlugForPath(path string) (string, bool) {
+	if key, ok := strings.CutPrefix(path, vaultDir); ok {
+		key, isBody := strings.CutSuffix(key, ".age")
+		slug, err := url.PathUnescape(key)
+		return slug, isBody && err == nil
+	}
+	slug, ok := strings.CutSuffix(path, ".md")
+	return slug, ok
+}
+
+// Summarize returns n without its body. When query is set, Match holds the
+// first body line containing it (case-insensitive), trimmed and capped.
+func Summarize(n *Note, query string) NoteSummary {
+	s := NoteSummary{
+		Slug:        n.Slug,
+		Title:       n.Title,
+		Description: n.Description,
+		Tags:        n.Tags,
+		Created:     n.Created,
+		Updated:     n.Updated,
+		Secure:      n.Secure,
+	}
+	for _, t := range n.Tasks {
+		if !t.Done {
+			s.OpenTasks++
+		}
+	}
+	if query == "" {
+		return s
+	}
+	lower := strings.ToLower(query)
+	for _, line := range strings.Split(n.Body, "\n") {
+		if strings.Contains(strings.ToLower(line), lower) {
+			match := []rune(strings.TrimSpace(line))
+			if len(match) > maxMatch {
+				match = append(match[:maxMatch], '…')
+			}
+			s.Match = string(match)
+			break
+		}
+	}
+	return s
+}
+
+// DoneSince keeps the done tasks finished on or after since (YYYY-MM-DD).
+func DoneSince(tasks []Task, since string) []Task {
+	kept := make([]Task, 0, len(tasks))
+	for _, t := range tasks {
+		if t.Done && t.DoneDate >= since {
+			kept = append(kept, t)
+		}
+	}
+	return kept
+}
+
+// readNote reads the .md file at path, parses its front-matter, tasks and
+// [[wiki-links]], then returns a fully-populated Note. Title falls back to
 // the first level-1 heading when the front-matter title is empty.
-func readNote(path string) (*Note, error) {
+func readNote(notesDir string, path string) (*Note, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("jot: read note %q: %w", path, err)
@@ -77,7 +192,7 @@ func readNote(path string) (*Note, error) {
 
 	fm, body := ParseFrontmatter(content)
 
-	slug := strings.TrimSuffix(filepath.Base(path), ".md")
+	slug := slugFor(notesDir, path)
 
 	title := fm.Title
 	if title == "" {
@@ -85,6 +200,18 @@ func readNote(path string) (*Note, error) {
 	}
 	if title == "" {
 		title = slug
+	}
+
+	updated := ""
+	if info, err := os.Stat(path); err == nil {
+		updated = info.ModTime().Format(time.RFC3339)
+	}
+
+	// Task lines count from the top of the file, not the end of the
+	// front-matter, so they match what an editor shows.
+	offset := 0
+	if strings.HasSuffix(content, body) {
+		offset = strings.Count(content[:len(content)-len(body)], "\n")
 	}
 
 	raw := ParseTasks(body)
@@ -96,7 +223,7 @@ func readNote(path string) (*Note, error) {
 			DueDate:     r.DueDate,
 			DoneDate:    r.DoneDate,
 			Done:        r.Done,
-			Line:        r.Line,
+			Line:        r.Line + offset,
 		}
 		t.Tags = r.Labels
 		tasks = append(tasks, t)
@@ -105,15 +232,18 @@ func readNote(path string) (*Note, error) {
 	links := ParseLinks(body)
 
 	return &Note{
-		Slug:    slug,
-		Title:   title,
-		Tags:    fm.Tags,
-		Secure:  fm.Secure,
-		Created: fm.Created,
-		Path:    path,
-		Body:    body,
-		Tasks:   tasks,
-		Links:   links,
+		Slug:        slug,
+		Title:       title,
+		Description: fm.Description,
+		Tags:        fm.Tags,
+		Secure:      fm.Secure,
+		Created:     fm.Created,
+		Updated:     updated,
+		Path:        path,
+		Body:        body,
+		Tasks:       tasks,
+		Links:       links,
+		raw:         content,
 	}, nil
 }
 
@@ -148,7 +278,7 @@ func readAllNotes(notesDir string) ([]*Note, error) {
 	for i, p := range paths {
 		go func() {
 			defer wg.Done()
-			n, err := readNote(p)
+			n, err := readNote(notesDir, p)
 			results[i] = result{note: n, err: err}
 		}()
 	}
@@ -207,10 +337,56 @@ func searchNotes(notesDir string, query string) ([]*Note, error) {
 	return matched, nil
 }
 
+// slugPath validates slug and returns its canonical form and file path,
+// refusing a path that symlinks lead outside the notes dir.
+func slugPath(notesDir string, slug string) (string, string, error) {
+	clean, err := CleanSlug(slug)
+	if err != nil {
+		return "", "", err
+	}
+	path := filepath.Join(notesDir, filepath.FromSlash(clean)+".md")
+	if err := contained(notesDir, path); err != nil {
+		return "", "", err
+	}
+	return clean, path, nil
+}
+
+// contained refuses path when the part of it that exists resolves, through
+// symlinks, outside notesDir, or through a broken link a write would follow.
+// ponytail: checked before use, not held open; os.Root if racing links matter.
+func contained(
+	notesDir string,
+	path string,
+) error {
+	root, err := filepath.EvalSymlinks(notesDir)
+	if err != nil {
+		return nil // no notes dir yet, so nothing in it can link out
+	}
+	existing := path
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		}
+		existing = filepath.Dir(existing)
+	}
+	resolved, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return fmt.Errorf("note path %q goes through a broken symlink", path)
+	}
+	if rel, _ := filepath.Rel(root, resolved); rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("note path %q leaves the notes dir through a symlink", path)
+	}
+	return nil
+}
+
 // findNote reads and returns the note at notesDir/slug.md.
 func findNote(notesDir string, slug string) (*Note, error) {
-	path := filepath.Join(notesDir, slug+".md")
-	n, err := readNote(path)
+	_, path, err := slugPath(notesDir, slug)
+	if err != nil {
+		return nil, err
+	}
+	n, err := readNote(notesDir, path)
 	if err != nil {
 		return nil, fmt.Errorf("jot: find note %q: %w", slug, err)
 	}
@@ -330,46 +506,101 @@ func matchStatus(t Task, status string) bool {
 	}
 }
 
-// markTaskDone finds the first open task in notePath whose description
-// contains desc (case-insensitive substring), marks it done, and writes
-// the file back.
+// markTaskDone marks done the open task in notePath that desc names: the
+// first whose description equals desc (case-insensitive), else the only one
+// containing it. When several contain it, the error lists their lines so the
+// caller can pick one with markTaskDoneAt.
 func markTaskDone(
 	notePath string,
 	desc string,
 ) error {
-	content, err := os.ReadFile(notePath)
+	lower := strings.ToLower(strings.TrimSpace(desc))
+	if lower == "" {
+		return fmt.Errorf("task description is required")
+	}
+	lines, err := readLines(notePath)
 	if err != nil {
-		return fmt.Errorf("read note %q: %w", notePath, err)
+		return err
 	}
 
-	lower := strings.ToLower(desc)
-	lines := strings.Split(string(content), "\n")
-	found := false
-
+	var exact, partial []int
 	for i, line := range lines {
 		tasks := ParseTasks(line)
-		for _, t := range tasks {
-			if t.Done {
-				continue
-			}
-			if !strings.Contains(strings.ToLower(t.Description), lower) {
-				continue
-			}
-			t.Done = true
-			t.DoneDate = time.Now().Format("2006-01-02")
-			lines[i] = FormatTask(t)
-			found = true
-			break
+		if len(tasks) == 0 || tasks[0].Done {
+			continue
 		}
-		if found {
-			break
+		d := strings.ToLower(tasks[0].Description)
+		switch {
+		case d == lower:
+			exact = append(exact, i)
+		case strings.Contains(d, lower):
+			partial = append(partial, i)
 		}
 	}
 
-	if !found {
+	candidates := partial
+	if len(exact) > 0 {
+		candidates = exact
+	}
+	switch len(candidates) {
+	case 0:
 		return fmt.Errorf("no open task matching %q found in %s", desc, notePath)
+	case 1:
+		return checkOff(notePath, lines, candidates[0])
 	}
+	nums := make([]string, len(candidates))
+	for i, idx := range candidates {
+		nums[i] = strconv.Itoa(idx + 1)
+	}
+	return fmt.Errorf(
+		"%d open tasks match %q in %s (lines %s); pick one by line",
+		len(candidates),
+		desc,
+		notePath,
+		strings.Join(nums, ", "),
+	)
+}
 
+// markTaskDoneAt marks done the open task on line (1-based, as Task.Line
+// reports it) of notePath.
+func markTaskDoneAt(
+	notePath string,
+	line int,
+) error {
+	lines, err := readLines(notePath)
+	if err != nil {
+		return err
+	}
+	if line < 1 || line > len(lines) {
+		return fmt.Errorf("line %d is outside %s", line, notePath)
+	}
+	if tasks := ParseTasks(lines[line-1]); len(tasks) == 0 || tasks[0].Done {
+		return fmt.Errorf("line %d of %s is not an open task", line, notePath)
+	}
+	return checkOff(notePath, lines, line-1)
+}
+
+// readLines reads notePath split into lines.
+func readLines(notePath string) ([]string, error) {
+	content, err := os.ReadFile(notePath)
+	if err != nil {
+		return nil, fmt.Errorf("read note %q: %w", notePath, err)
+	}
+	return strings.Split(string(content), "\n"), nil
+}
+
+// checkOff marks the task on lines[i] done today, keeping its indentation,
+// and writes the file back.
+func checkOff(
+	notePath string,
+	lines []string,
+	i int,
+) error {
+	t := ParseTasks(lines[i])[0]
+	t.Done = true
+	t.DoneDate = time.Now().Format("2006-01-02")
+	indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
+	lines[i] = indent + FormatTask(t)
 	return os.WriteFile(notePath, []byte(strings.Join(lines, "\n")), 0o600)
 }
 
@@ -384,9 +615,9 @@ func addTask(
 	title string,
 	task RawTask,
 ) error {
-	clean := filepath.ToSlash(filepath.Clean(slug))
-	if slug == "" || filepath.IsAbs(slug) || clean == ".." || strings.HasPrefix(clean, "../") {
-		return fmt.Errorf("invalid note slug %q", slug)
+	clean, notePath, err := slugPath(notesDir, slug)
+	if err != nil {
+		return err
 	}
 
 	task.Description = strings.TrimSpace(task.Description)
@@ -407,15 +638,14 @@ func addTask(
 		}
 	}
 	for _, d := range []string{task.DueDate, task.DoneDate} {
-		if d != "" && !dateRe.MatchString(d) {
-			return fmt.Errorf("invalid date %q: want YYYY-MM-DD", d)
+		if _, err := time.Parse("2006-01-02", d); d != "" && err != nil {
+			return fmt.Errorf("invalid date %q: want a real YYYY-MM-DD date", d)
 		}
 	}
 	if task.Done && task.DoneDate == "" {
 		task.DoneDate = time.Now().Format("2006-01-02")
 	}
 
-	notePath := filepath.Join(notesDir, clean+".md")
 	content, err := os.ReadFile(notePath)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -439,6 +669,47 @@ func addTask(
 		text += "\n"
 	}
 	return os.WriteFile(notePath, []byte(text+FormatTask(task)+"\n"), 0o600)
+}
+
+// splitFrontmatter returns content's YAML front-matter block byte for byte,
+// "---" delimiters included, and the body after it. ok is false when content
+// does not open with a closed "---" block; then body is all of content.
+func splitFrontmatter(content string) (string, string, bool) {
+	lines := strings.SplitAfter(content, "\n")
+	if strings.TrimRight(lines[0], "\r\n") != "---" {
+		return "", content, false
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimRight(lines[i], "\r\n") == "---" {
+			head := strings.Join(lines[:i+1], "")
+			return head, content[len(head):], true
+		}
+	}
+	return "", content, false
+}
+
+// setSecure returns a front-matter block with its secure key removed, in
+// any quoting, and, when secure is true, "secure: true" added before the
+// closing delimiter. Every other line, line endings included, stays as
+// written.
+func setSecure(head string, secure bool) string {
+	lines := strings.SplitAfter(head, "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	eol := strings.TrimPrefix(lines[0], "---") // "\n" or "\r\n"
+	closing := lines[len(lines)-1]
+
+	kept := make([]string, 0, len(lines)+1)
+	for _, line := range lines[:len(lines)-1] {
+		if !secureKeyRe.MatchString(line) {
+			kept = append(kept, line)
+		}
+	}
+	if secure {
+		kept = append(kept, "secure: true"+eol)
+	}
+	return strings.Join(append(kept, closing), "")
 }
 
 // titleFromBody extracts the text of the first level-1 heading from body.

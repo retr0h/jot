@@ -33,24 +33,36 @@ import (
 )
 
 var (
-	taskListStatusFlag string
-	taskListTagFlag    string
+	taskListStatusFlag    string
+	taskListTagFlag       string
+	taskListDoneSinceFlag string
 )
 
-// taskListCmd implements `jot task list [--status X] [--tag X]`.
+// taskListCmd implements `jot task list [--status X] [--tag X] [--done-since D]`.
 var taskListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List tasks, optionally filtered by status or tag",
+	Short: "List tasks, optionally filtered by status, tag or done date",
 	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
 		out := c.OutOrStdout()
 
-		tasks, err := svc.AllTasks(taskListStatusFlag, taskListTagFlag)
+		status := taskListStatusFlag
+		if taskListDoneSinceFlag != "" {
+			if _, err := time.Parse("2006-01-02", taskListDoneSinceFlag); err != nil {
+				return fmt.Errorf("--done-since must be a YYYY-MM-DD date")
+			}
+			status = "done"
+		}
+
+		tasks, err := svc.AllTasks(status, taskListTagFlag)
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
 		}
+		if taskListDoneSinceFlag != "" {
+			tasks = jot.DoneSince(tasks, taskListDoneSinceFlag)
+		}
 
-		if taskListStatusFlag == "open" {
+		if status == "open" {
 			todayStr := time.Now().Format("2006-01-02")
 			done, _ := svc.AllTasks("done", taskListTagFlag)
 			for _, t := range done {
@@ -189,4 +201,6 @@ func init() {
 	taskListCmd.Flags().
 		StringVarP(&taskListStatusFlag, "status", "S", "open", "filter by status: open, done, or all")
 	taskListCmd.Flags().StringVarP(&taskListTagFlag, "tag", "T", "", "filter by tag/label name")
+	taskListCmd.Flags().
+		StringVar(&taskListDoneSinceFlag, "done-since", "", "only tasks done on or after this date, YYYY-MM-DD")
 }

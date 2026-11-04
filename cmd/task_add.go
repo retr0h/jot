@@ -27,7 +27,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/gitops"
 	"github.com/retr0h/jot/internal/jot"
 )
 
@@ -42,7 +41,7 @@ var (
 
 // taskAddCmd implements `jot task add --slug <slug> --desc <description>`.
 // Appends a checkbox task to the note, creating the note when it does not
-// exist yet, then auto-commits.
+// exist yet; the service commits it.
 var taskAddCmd = &cobra.Command{
 	Use:   "add",
 	Short: "Add a task to a note, creating the note if needed",
@@ -63,17 +62,8 @@ var taskAddCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := svc.AddTask(taskAddSlugFlag, taskAddTitleFlag, task); err != nil {
+		if err := svc.AddTask(taskAddSlugFlag, taskAddTitleFlag, task); err != nil { // commits too
 			return err
-		}
-
-		// Auto-commit.
-		if repo, err := gitops.OpenRepo(NotesDir()); err == nil {
-			msg := gitops.FormatCommitMessage(
-				fmt.Sprintf("task: add %q to %s", task.Description, taskAddSlugFlag),
-				"",
-			)
-			_ = repo.Commit(msg)
 		}
 
 		cli.Print(out, cli.Success(

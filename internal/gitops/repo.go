@@ -24,6 +24,7 @@
 package gitops
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"strings"
@@ -32,6 +33,8 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/retr0h/jot/internal/lock"
 )
 
 // LogEntry is a single commit in the repository history.
@@ -40,6 +43,7 @@ type LogEntry struct {
 	Message string
 	Date    time.Time // commit author date
 	Author  string
+	Files   []string // paths the commit changed, relative to the notes dir
 }
 
 // Repo wraps a go-git Repository bound to the notes directory.
@@ -75,8 +79,20 @@ func OpenRepo(notesDir string) (*Repo, error) {
 }
 
 // Commit stages all changes (git add .) and creates a commit with message.
-// It is a no-op when the working tree is clean.
+// It is a no-op when the working tree is clean. It holds the notes dir's
+// write lock, so concurrent jot processes never update the index at once.
 func (r *Repo) Commit(message string) error {
+	return lock.With(r.path, func() error { return r.commit(message) })
+}
+
+// CommitHeld formats subject by the 50/72 rule and commits, for a caller
+// that already holds the notes dir's write lock, so its write and commit
+// land together.
+func (r *Repo) CommitHeld(subject string) error {
+	return r.commit(FormatCommitMessage(subject, ""))
+}
+
+func (r *Repo) commit(message string) error {
 	w, err := r.repo.Worktree()
 	if err != nil {
 		return fmt.Errorf("gitops: worktree: %w", err)
@@ -190,9 +206,27 @@ func (r *Repo) Log(
 			Message: strings.TrimSpace(c.Message),
 			Date:    c.Author.When,
 			Author:  c.Author.Name,
+			Files:   changedFiles(c),
 		})
 	}
 	return entries, nil
+}
+
+// changedFiles lists the paths c changed against its first parent, or
+// against an empty tree for a root commit. A corrupt tree yields no paths.
+func changedFiles(c *object.Commit) []string {
+	var parent *object.Tree
+	if p, err := c.Parent(0); err == nil {
+		parent, _ = p.Tree()
+	}
+	tree, _ := c.Tree()
+	changes, _ := object.DiffTree(parent, tree)
+
+	files := make([]string, 0, len(changes))
+	for _, ch := range changes {
+		files = append(files, cmp.Or(ch.To.Name, ch.From.Name)) // From names a deleted file
+	}
+	return files
 }
 
 // Diff returns the working-tree diff versus HEAD for the given file path.
