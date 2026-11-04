@@ -712,6 +712,38 @@ func setSecure(head string, secure bool) string {
 	return strings.Join(append(kept, closing), "")
 }
 
+// withDefaults returns content with the title, tags and created
+// front-matter fields that jot scaffolds added wherever content lacks them,
+// first in the block. Supplied lines stay as written; content without
+// front-matter gets a whole block.
+func withDefaults(
+	content string,
+	title string,
+	created string,
+) string {
+	head, body, ok := splitFrontmatter(content)
+	if !ok {
+		head, body = "---\n---\n", "\n"+content
+	}
+	// SplitAfter leaves "" after a final newline; a block at the end of
+	// content may have none.
+	lines := slices.DeleteFunc(
+		strings.SplitAfter(head, "\n"),
+		func(l string) bool { return l == "" },
+	)
+	eol := strings.TrimPrefix(lines[0], "---")
+
+	defaults := []string{"title: " + strconv.Quote(title), "tags: []", "created: " + created}
+	out := []string{lines[0]}
+	for _, d := range defaults {
+		key := regexp.MustCompile(`^["']?` + d[:strings.Index(d, ":")] + `["']?\s*:`)
+		if !slices.ContainsFunc(lines[1:], key.MatchString) {
+			out = append(out, d+eol)
+		}
+	}
+	return strings.Join(append(out, lines[1:]...), "") + body
+}
+
 // titleFromBody extracts the text of the first level-1 heading from body.
 // Returns an empty string when no heading is found.
 func titleFromBody(body string) string {

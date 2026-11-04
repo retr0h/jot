@@ -21,19 +21,44 @@
 package jot
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
 )
 
-var nonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
+var (
+	nonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
+	datedRe  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-`)
+)
 
 // NewSlug returns a URL-safe slug combining the date and a normalized title.
 // The date is formatted as YYYY-MM-DD and the title is lowercased with
 // non-alphanumeric runs replaced by hyphens.
 func NewSlug(title string, date time.Time) string {
+	return date.Format("2006-01-02") + "-" + slugify(title)
+}
+
+// slugify returns title lowercased with non-alphanumeric runs replaced by
+// hyphens: a slug without NewSlug's date.
+func slugify(title string) string {
 	s := strings.ToLower(strings.TrimSpace(title))
 	s = nonAlnum.ReplaceAllString(s, "-")
-	s = strings.Trim(s, "-")
-	return date.Format("2006-01-02") + "-" + s
+	return strings.Trim(s, "-")
+}
+
+// noteName returns the file name, without folder or ".md", for a note
+// titled title: its slug, after today's date when dated.
+func noteName(
+	title string,
+	dated bool,
+) (string, error) {
+	name := slugify(title)
+	if name == "" {
+		return "", fmt.Errorf("title %q has no letters or digits to name the note", title)
+	}
+	if dated {
+		name = NewSlug(title, time.Now())
+	}
+	return name, nil
 }

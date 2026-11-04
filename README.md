@@ -44,6 +44,7 @@ jot init
 jot note new --title "Sprint Planning"
 jot note new --title "network/Switch Config"
 jot note new --title "secrets/API Keys" --secure
+jot note new --title "memory/Projects" --undated
 cat meeting.md | jot note new --title "Meeting Notes"
 echo "secret stuff" | jot note new --title "Credentials" --secure
 jot note list
@@ -68,6 +69,7 @@ jot git log
 | Secure vaults        | `--secure` encrypts notes via [kvlt] (age + SSH keys)   |
 | Full-text search     | Concurrent goroutine file scan — no index, no database  |
 | MCP server           | 16 tools over stdio for Claude / Codex / any MCP client |
+| Agent memory         | One git-backed memory shared by all your agents         |
 | Subdirectory nesting | `jot note new --title "ops/runbook"` for organization   |
 | nvim plugin          | Ships `lua/jot/` — auto-configures obsidian.nvim        |
 | Max Headroom palette | Magenta `#c678dd` accent across CLI, installer, nvim    |
@@ -150,12 +152,12 @@ Auto-discovered by Claude Code via [`.mcp.json`](.mcp.json):
 | -------------- | --------------------------------------------------------------------------- |
 | `list_notes`   | Note summaries (title, description, tags, dates); `full` adds bodies        |
 | `get_note`     | Read full markdown by slug (transparently decrypts secure notes)            |
-| `create_note`  | Create a note, in a folder with `dir/Title`; never overwrites               |
+| `create_note`  | Create a note, in a folder with `dir/Title`; `undated` drops the slug date  |
 | `append_note`  | Add text to the end of an existing note                                     |
 | `update_note`  | Replace a note's body, or the whole file when content has frontmatter       |
 | `delete_note`  | Remove a note file                                                          |
 | `search_notes` | Full-text search; summaries carry the first matching line                   |
-| `rename_note`  | Rename a note within its folder and rewrite all `[[wikilinks]]`             |
+| `rename_note`  | Rename a note in its folder, dated or not as before, and fix `[[links]]`    |
 | `encrypt_note` | Encrypt an existing note via kvlt, keeping every frontmatter field          |
 | `decrypt_note` | Decrypt a secure note back to plaintext                                     |
 | `history`      | Commits newest first with the notes each changed, filtered by note and time |
@@ -173,6 +175,44 @@ Give notes a one-line `description:` in frontmatter so agents can recall them
 from `list_notes` and `search_notes` without reading bodies. Secure notes over
 MCP require passphrase-free SSH keys configured in `ssh_keys` — there is no TTY
 for interactive prompts.
+
+### 🧠 Agent memory
+
+jot works as long-term memory shared by every agent on the machine. Claude Code,
+Codex and any other MCP client read and write the same notes dir, every write is
+a git commit, and `history` shows what changed and when. Register the server
+once per agent:
+
+```bash
+claude mcp add jot --scope user -- jot mcp start
+```
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.jot]
+command = "jot"
+args = ["mcp", "start"]
+```
+
+Then tell the agents when to use it, in `~/.claude/CLAUDE.md` and
+`~/.codex/AGENTS.md`:
+
+```markdown
+- jot (MCP server `jot`) is the memory shared across agents. Before a task,
+  `search_notes` for its topic. Save lasting facts, decisions and preferences
+  with `append_note` to the matching note under `memory/`, or `create_note`
+  `memory/<Topic>` with `undated: true` and a one-line `description:` when
+  none fits
+- secrets go only in a secure note's body, never in a title, description or tag
+```
+
+To keep memory to one project instead, register the server with `--scope local`
+from that project, put the Codex block in the project's `.codex/config.toml`,
+and put the instructions in its `AGENTS.md`.
+
+Secure note bodies stay encrypted, so search does not see them; titles,
+descriptions and tags are plaintext. The write lock covers one machine. To share
+memory across machines, push and pull the notes repo with git.
 
 ## ⚙️ Configuration
 
