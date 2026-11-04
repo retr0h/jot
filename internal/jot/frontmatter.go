@@ -31,10 +31,11 @@ import (
 // Frontmatter holds the YAML front-matter block parsed from a note file.
 // All fields map directly to the YAML keys used in jot's scaffold template.
 type Frontmatter struct {
-	Title   string   `yaml:"title"`
-	Tags    []string `yaml:"tags"`
-	Created string   `yaml:"created,omitempty"`
-	Secure  bool     `yaml:"secure,omitempty"`
+	Title       string   `yaml:"title"`
+	Description string   `yaml:"description,omitempty"`
+	Tags        []string `yaml:"tags"`
+	Created     string   `yaml:"created,omitempty"`
+	Secure      bool     `yaml:"secure,omitempty"`
 }
 
 // ParseFrontmatter parses the YAML front-matter from content and returns the

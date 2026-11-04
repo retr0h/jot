@@ -28,6 +28,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/retr0h/jot/internal/gitops"
 	"github.com/retr0h/jot/internal/jot"
 )
 
@@ -46,6 +47,9 @@ type mockStore struct {
 	tasksDueFn     func(time.Time, time.Time) ([]jot.Task, error)
 	markTaskDoneFn func(string, string) error
 	addTaskFn      func(string, string, jot.RawTask) error
+	markDoneAtFn   func(string, int) error
+	appendNoteFn   func(string, string) error
+	updateNoteFn   func(string, string) error
 	allTagsFn      func() ([]string, error)
 }
 
@@ -56,15 +60,38 @@ func (m *mockStore) AddTask(slug, title string, task jot.RawTask) error {
 	return nil
 }
 
-// mockCommitter records commit messages, optionally failing.
-type mockCommitter struct {
-	messages []string
-	err      error
+func (m *mockStore) MarkTaskDoneAt(slug string, line int) error {
+	if m.markDoneAtFn != nil {
+		return m.markDoneAtFn(slug, line)
+	}
+	return nil
 }
 
-func (m *mockCommitter) Commit(message string) error {
-	m.messages = append(m.messages, message)
-	return m.err
+func (m *mockStore) AppendNote(slug, text string) error {
+	if m.appendNoteFn != nil {
+		return m.appendNoteFn(slug, text)
+	}
+	return nil
+}
+
+func (m *mockStore) UpdateNote(slug, content string) error {
+	if m.updateNoteFn != nil {
+		return m.updateNoteFn(slug, content)
+	}
+	return nil
+}
+
+// mockHistory returns fixed log entries and records the request.
+type mockHistory struct {
+	entries  []gitops.LogEntry
+	err      error
+	filename string
+	limit    int
+}
+
+func (m *mockHistory) Log(filename string, limit int) ([]gitops.LogEntry, error) {
+	m.filename, m.limit = filename, limit
+	return m.entries, m.err
 }
 
 func (m *mockStore) ListNotes(tag string) ([]*jot.Note, error) {
@@ -315,21 +342,29 @@ func newTestServer(store *mockStore) *Server {
 func TestHandleListNotes(t *testing.T) {
 	t.Parallel()
 
+	withBody := func(_ string) ([]*jot.Note, error) {
+		return []*jot.Note{{Slug: "my-note", Title: "My Note", Body: "the whole body"}}, nil
+	}
+
 	tests := []struct {
 		name    string
 		store   *mockStore
 		args    listNotesArgs
 		wantSub string
+		notSub  string
 	}{
 		{
-			name: "returns notes as JSON",
-			store: &mockStore{
-				listNotesFn: func(_ string) ([]*jot.Note, error) {
-					return []*jot.Note{{Slug: "my-note", Title: "My Note"}}, nil
-				},
-			},
+			name:    "returns summaries without bodies by default",
+			store:   &mockStore{listNotesFn: withBody},
 			args:    listNotesArgs{},
-			wantSub: `"my-note"`,
+			wantSub: `"open_tasks": 0`,
+			notSub:  "the whole body",
+		},
+		{
+			name:    "full returns whole notes",
+			store:   &mockStore{listNotesFn: withBody},
+			args:    listNotesArgs{Full: true},
+			wantSub: `"body": "the whole body"`,
 		},
 		{
 			name: "passes tag filter",
@@ -368,6 +403,9 @@ func TestHandleListNotes(t *testing.T) {
 			got := resultText(r)
 			if !containsStr(got, tt.wantSub) {
 				t.Errorf("got %q, want substring %q", got, tt.wantSub)
+			}
+			if tt.notSub != "" && containsStr(got, tt.notSub) {
+				t.Errorf("got %q, want no %q", got, tt.notSub)
 			}
 		})
 	}
@@ -560,14 +598,24 @@ func TestHandleSearchNotes(t *testing.T) {
 			wantSub: "error: query is required",
 		},
 		{
-			name: "returns matching notes",
+			name: "returns summaries with the matching line",
 			store: &mockStore{
 				searchNotesFn: func(_ string) ([]*jot.Note, error) {
-					return []*jot.Note{{Slug: "result"}}, nil
+					return []*jot.Note{{Slug: "result", Body: "intro\na test line\n"}}, nil
 				},
 			},
 			args:    searchNotesArgs{Query: "test"},
-			wantSub: `"result"`,
+			wantSub: `"match": "a test line"`,
+		},
+		{
+			name: "full returns whole notes",
+			store: &mockStore{
+				searchNotesFn: func(_ string) ([]*jot.Note, error) {
+					return []*jot.Note{{Slug: "result", Body: "intro\na test line\n"}}, nil
+				},
+			},
+			args:    searchNotesArgs{Query: "test", Full: true},
+			wantSub: `"body": "intro\na test line\n"`,
 		},
 		{
 			name: "store error returned as text",
@@ -816,6 +864,28 @@ func TestHandleListTasks(t *testing.T) {
 			args:    listTasksArgs{},
 			wantSub: "error: broken",
 		},
+		{
+			name: "done_since asks for done tasks and keeps those on or after the date",
+			store: &mockStore{
+				allTasksFn: func(status, _ string) ([]jot.Task, error) {
+					if status != "done" {
+						return nil, fmt.Errorf("expected done, got %q", status)
+					}
+					return []jot.Task{
+						{Description: "before", Done: true, DoneDate: "2026-11-01"},
+						{Description: "after", Done: true, DoneDate: "2026-11-03"},
+					}, nil
+				},
+			},
+			args:    listTasksArgs{Status: "open", DoneSince: "2026-11-02"},
+			wantSub: `"after"`,
+		},
+		{
+			name:    "malformed done_since returns error",
+			store:   &mockStore{},
+			args:    listTasksArgs{DoneSince: "yesterday"},
+			wantSub: "error: done_since must be",
+		},
 	}
 
 	for _, tt := range tests {
@@ -830,6 +900,9 @@ func TestHandleListTasks(t *testing.T) {
 			got := resultText(r)
 			if !containsStr(got, tt.wantSub) {
 				t.Errorf("got %q, want substring %q", got, tt.wantSub)
+			}
+			if tt.args.DoneSince != "" && containsStr(got, `"before"`) {
+				t.Errorf("got %q, want tasks done before %s filtered out", got, tt.args.DoneSince)
 			}
 		})
 	}
@@ -851,16 +924,38 @@ func TestHandleTaskDone(t *testing.T) {
 			wantSub: "error: slug is required",
 		},
 		{
-			name:    "empty desc returns error",
+			name:    "no desc or line returns error",
 			store:   &mockStore{},
 			args:    taskDoneArgs{Slug: "note", Desc: ""},
-			wantSub: "error: desc is required",
+			wantSub: "error: desc or line is required",
 		},
 		{
 			name:    "marks task done",
 			store:   &mockStore{},
 			args:    taskDoneArgs{Slug: "note", Desc: "review PR"},
 			wantSub: `"done": true`,
+		},
+		{
+			name: "a line takes precedence over desc",
+			store: &mockStore{
+				markDoneAtFn: func(slug string, line int) error {
+					if slug != "done/2026-11-03" || line != 7 {
+						return fmt.Errorf("unexpected %q %d", slug, line)
+					}
+					return nil
+				},
+				markTaskDoneFn: func(_, _ string) error { return fmt.Errorf("desc used") },
+			},
+			args:    taskDoneArgs{Slug: "done/2026-11-03", Desc: "ignored", Line: 7},
+			wantSub: `"line": 7, "done": true`,
+		},
+		{
+			name: "line store error returned as text",
+			store: &mockStore{
+				markDoneAtFn: func(_ string, _ int) error { return fmt.Errorf("not an open task") },
+			},
+			args:    taskDoneArgs{Slug: "note", Line: 3},
+			wantSub: "error: mark task done: not an open task",
 		},
 		{
 			name: "store error returned as text",
@@ -895,11 +990,10 @@ func TestHandleTaskAdd(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		store      *mockStore
-		args       taskAddArgs
-		wantSub    string
-		wantCommit string
+		name    string
+		store   *mockStore
+		args    taskAddArgs
+		wantSub string
 	}{
 		{
 			name:    "empty slug returns error",
@@ -920,7 +1014,7 @@ func TestHandleTaskAdd(t *testing.T) {
 			wantSub: "error: add task: due",
 		},
 		{
-			name: "adds a done task and commits",
+			name: "adds a done task",
 			store: &mockStore{
 				addTaskFn: func(slug, title string, task jot.RawTask) error {
 					if slug != "done/2026-11-03" || title != "Done" || !task.Done ||
@@ -934,11 +1028,10 @@ func TestHandleTaskAdd(t *testing.T) {
 				Slug: "done/2026-11-03", Title: "Done", Desc: "Merged !20",
 				Done: "2026-11-02", Tags: []string{"#cos"},
 			},
-			wantSub:    `"line": "- [x] Merged !20 | done:2026-11-02 #cos"`,
-			wantCommit: `task: add "Merged !20" to done/2026-11-03`,
+			wantSub: `"line": "- [x] Merged !20 | done:2026-11-02 #cos"`,
 		},
 		{
-			name: "store error returned as text without a commit",
+			name: "store error returned as text",
 			store: &mockStore{
 				addTaskFn: func(_, _ string, _ jot.RawTask) error {
 					return fmt.Errorf("task description contains a #tag")
@@ -953,46 +1046,53 @@ func TestHandleTaskAdd(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			committer := &mockCommitter{}
-			srv, _ := New(Config{Store: tt.store, Committer: committer})
+			srv := newTestServer(tt.store)
 			r, _, err := srv.handleTaskAdd(context.Background(), nil, tt.args)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			got := resultText(r)
-			if !containsStr(got, tt.wantSub) {
+			if got := resultText(r); !containsStr(got, tt.wantSub) {
 				t.Errorf("got %q, want substring %q", got, tt.wantSub)
-			}
-			switch {
-			case tt.wantCommit == "" && len(committer.messages) > 0:
-				t.Errorf("unexpected commit %q", committer.messages)
-			case tt.wantCommit != "" && (len(committer.messages) != 1 || committer.messages[0] != tt.wantCommit):
-				t.Errorf("commits = %q, want [%q]", committer.messages, tt.wantCommit)
 			}
 		})
 	}
 }
 
-func TestServer_commit(t *testing.T) {
+func TestHandleAppendNote(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		committer *mockCommitter
-		subject   string
-		want      []string
+		name    string
+		store   *mockStore
+		args    appendNoteArgs
+		wantSub string
 	}{
 		{
-			name:      "commits with a formatted subject",
-			committer: &mockCommitter{},
-			subject:   "note: add todo.",
-			want:      []string{"note: add todo"},
+			name:    "empty slug returns error",
+			store:   &mockStore{},
+			args:    appendNoteArgs{Content: "x"},
+			wantSub: "error: slug is required",
 		},
 		{
-			name:      "a failing commit is logged, not raised",
-			committer: &mockCommitter{err: fmt.Errorf("locked")},
-			subject:   "note: delete x",
-			want:      []string{"note: delete x"},
+			name: "appends",
+			store: &mockStore{
+				appendNoteFn: func(slug, text string) error {
+					if slug != "memory/projects" || text != "jot is the store" {
+						return fmt.Errorf("unexpected %q %q", slug, text)
+					}
+					return nil
+				},
+			},
+			args:    appendNoteArgs{Slug: "memory/projects", Content: "jot is the store"},
+			wantSub: `{"appended": "memory/projects"}`,
+		},
+		{
+			name: "store error returned as text",
+			store: &mockStore{
+				appendNoteFn: func(_, _ string) error { return fmt.Errorf("text to append is required") },
+			},
+			args:    appendNoteArgs{Slug: "note"},
+			wantSub: `error: append to note "note": text to append is required`,
 		},
 	}
 
@@ -1000,19 +1100,209 @@ func TestServer_commit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			srv, _ := New(Config{Store: &mockStore{}, Committer: tt.committer})
-			srv.commit(tt.subject)
-			if len(tt.committer.messages) != len(tt.want) ||
-				tt.committer.messages[0] != tt.want[0] {
-				t.Errorf("commits = %q, want %q", tt.committer.messages, tt.want)
+			srv := newTestServer(tt.store)
+			r, _, err := srv.handleAppendNote(context.Background(), nil, tt.args)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := resultText(r); !containsStr(got, tt.wantSub) {
+				t.Errorf("got %q, want substring %q", got, tt.wantSub)
 			}
 		})
 	}
+}
 
-	t.Run("no committer is a no-op", func(t *testing.T) {
-		t.Parallel()
-		newTestServer(&mockStore{}).commit("note: add x")
-	})
+func TestHandleUpdateNote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		store   *mockStore
+		args    updateNoteArgs
+		wantSub string
+	}{
+		{
+			name:    "empty slug returns error",
+			store:   &mockStore{},
+			args:    updateNoteArgs{Content: "x"},
+			wantSub: "error: slug is required",
+		},
+		{
+			name:    "updates",
+			store:   &mockStore{},
+			args:    updateNoteArgs{Slug: "mem", Content: "new body"},
+			wantSub: `{"updated": "mem"}`,
+		},
+		{
+			name: "store error returned as text",
+			store: &mockStore{
+				updateNoteFn: func(_, _ string) error { return fmt.Errorf("note is encrypted") },
+			},
+			args:    updateNoteArgs{Slug: "vault", Content: "---\n---\n"},
+			wantSub: `error: update note "vault": note is encrypted`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := newTestServer(tt.store)
+			r, _, err := srv.handleUpdateNote(context.Background(), nil, tt.args)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := resultText(r); !containsStr(got, tt.wantSub) {
+				t.Errorf("got %q, want substring %q", got, tt.wantSub)
+			}
+		})
+	}
+}
+
+func TestHandleHistory(t *testing.T) {
+	t.Parallel()
+
+	newer := time.Date(2026, 11, 3, 10, 0, 0, 0, time.Local)
+	older := time.Date(2026, 11, 1, 9, 0, 0, 0, time.Local)
+	entries := []gitops.LogEntry{
+		{
+			Hash:    "aaa1111",
+			Date:    newer,
+			Author:  "jot",
+			Message: "task: add",
+			Files:   []string{"done/2026-11-03.md", ".kvlt/vaults/local/jot.yaml"},
+		},
+		{
+			// An old author date near the top of the log, as a cherry-pick has.
+			Hash:    "ccc3333",
+			Date:    older.Add(-24 * time.Hour),
+			Author:  "jot",
+			Message: "note: picked",
+			Files:   []string{"picked.md"},
+		},
+		{
+			Hash:    "bbb2222",
+			Date:    older,
+			Author:  "jot",
+			Message: "note(secure): append to ops/keys",
+			Files:   []string{".kvlt/secrets/local/jot/ops%2Fkeys.age"},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		history   *mockHistory // nil means no repository
+		args      historyArgs
+		wantSub   []string
+		notSub    []string
+		wantLimit int
+	}{
+		{
+			name:    "no repository returns error",
+			args:    historyArgs{},
+			wantSub: []string{"error: the notes dir is not a git repository"},
+		},
+		{
+			name:    "a slug escaping the notes dir returns error",
+			history: &mockHistory{entries: entries},
+			args:    historyArgs{Slug: "../x"},
+			wantSub: []string{"error: invalid note slug"},
+		},
+		{
+			name:    "a malformed since returns error",
+			history: &mockHistory{entries: entries},
+			args:    historyArgs{Since: "last tuesday"},
+			wantSub: []string{"error: since must be"},
+		},
+		{
+			name:      "lists commits newest first with note slugs, 20 by default",
+			history:   &mockHistory{entries: entries},
+			args:      historyArgs{Limit: -5},
+			wantSub:   []string{`"aaa1111"`, `"done/2026-11-03"`, `"bbb2222"`, `"ops/keys"`},
+			notSub:    []string{".kvlt"},
+			wantLimit: 20,
+		},
+		{
+			name:      "filters by a secure note through its vault file",
+			history:   &mockHistory{entries: entries},
+			args:      historyArgs{Slug: "ops/keys.md", Limit: 500},
+			wantSub:   []string{`"bbb2222"`},
+			notSub:    []string{`"aaa1111"`, `"ccc3333"`},
+			wantLimit: 1000,
+		},
+		{
+			name:      "since skips an old author date without stopping",
+			history:   &mockHistory{entries: entries},
+			args:      historyArgs{Since: "2026-11-01"},
+			wantSub:   []string{`"aaa1111"`, `"bbb2222"`},
+			notSub:    []string{`"ccc3333"`},
+			wantLimit: 1000,
+		},
+		{
+			name:      "since an RFC 3339 time keeps commits at or after it",
+			history:   &mockHistory{entries: entries},
+			args:      historyArgs{Since: newer.Format(time.RFC3339)},
+			wantSub:   []string{`"aaa1111"`},
+			notSub:    []string{`"bbb2222"`},
+			wantLimit: 1000,
+		},
+		{
+			name:      "the limit is capped at 200",
+			history:   &mockHistory{entries: entries},
+			args:      historyArgs{Limit: 500},
+			wantLimit: 200,
+		},
+		{
+			name:      "limit stops early",
+			history:   &mockHistory{entries: entries},
+			args:      historyArgs{Limit: 1},
+			wantSub:   []string{`"aaa1111"`},
+			notSub:    []string{`"bbb2222"`},
+			wantLimit: 1,
+		},
+		{
+			name:    "log error returned as text",
+			history: &mockHistory{err: fmt.Errorf("corrupt repo")},
+			args:    historyArgs{},
+			wantSub: []string{"error: corrupt repo"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := Config{Store: &mockStore{}}
+			if tt.history != nil {
+				cfg.History = tt.history
+			}
+			srv, _ := New(cfg)
+			r, _, err := srv.handleHistory(context.Background(), nil, tt.args)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := resultText(r)
+			for _, sub := range tt.wantSub {
+				if !containsStr(got, sub) {
+					t.Errorf("got %q, want substring %q", got, sub)
+				}
+			}
+			for _, sub := range tt.notSub {
+				if containsStr(got, sub) {
+					t.Errorf("got %q, want no %q", got, sub)
+				}
+			}
+			if tt.wantLimit != 0 &&
+				(tt.history.limit != tt.wantLimit || tt.history.filename != "") {
+				t.Errorf(
+					"Log(%q, %d), want Log(\"\", %d)",
+					tt.history.filename,
+					tt.history.limit,
+					tt.wantLimit,
+				)
+			}
+		})
+	}
 }
 
 func TestHandleTasksDue(t *testing.T) {

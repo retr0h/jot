@@ -36,6 +36,7 @@ import (
 
 	"github.com/retr0h/jot/internal/cli"
 	"github.com/retr0h/jot/internal/config"
+	"github.com/retr0h/jot/internal/gitops"
 	"github.com/retr0h/jot/internal/jot"
 )
 
@@ -142,6 +143,10 @@ func initConfig() {
 		NotesDir: appConfig.NotesDir,
 		SSHKeys:  appConfig.SSHKeys,
 		Prompt:   cli.PassphrasePrompt,
+	}
+	// The service commits each write while it still holds the write lock.
+	if repo, err := gitops.OpenRepo(appConfig.NotesDir); err == nil {
+		svc.Committer = repo
 	}
 }
 

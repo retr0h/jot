@@ -23,6 +23,7 @@ package gitops_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/retr0h/jot/internal/gitops"
@@ -36,6 +37,9 @@ func writeFile(
 ) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("writeFile %q: %v", path, err)
+	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("writeFile %q: %v", path, err)
 	}
@@ -157,6 +161,56 @@ func TestRepo_Commit(t *testing.T) {
 	}
 }
 
+func TestRepo_CommitHeld(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		subject     string
+		write       bool
+		wantMessage string
+		wantCommits int
+	}{
+		{
+			name:        "commits with a subject trimmed to 50 characters",
+			subject:     "note: append to memory/projects/a-very-long-slug-name.",
+			write:       true,
+			wantMessage: "note: append to memory/projects/a-very-long-slu...",
+			wantCommits: 1,
+		},
+		{
+			name:        "no-op on a clean worktree",
+			subject:     "note: nothing",
+			wantCommits: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			r, err := gitops.InitRepo(dir)
+			if err != nil {
+				t.Fatalf("InitRepo: %v", err)
+			}
+			if tt.write {
+				writeFile(t, dir, "note.md", "# Hello\n")
+			}
+
+			if err := r.CommitHeld(tt.subject); err != nil {
+				t.Fatalf("CommitHeld: %v", err)
+			}
+			entries, err := r.Log("", 0)
+			if err != nil || len(entries) != tt.wantCommits {
+				t.Fatalf("Log = %d entries, %v; want %d", len(entries), err, tt.wantCommits)
+			}
+			if tt.wantCommits > 0 && entries[0].Message != tt.wantMessage {
+				t.Errorf("message = %q, want %q", entries[0].Message, tt.wantMessage)
+			}
+		})
+	}
+}
+
 func TestRepo_CommitFile(t *testing.T) {
 	t.Parallel()
 
@@ -247,16 +301,18 @@ func TestRepo_Log(t *testing.T) {
 		filename  string
 		limit     int
 		wantCount int
+		wantFiles [][]string // per entry, newest first; nil skips the check
 	}{
 		{
-			name: "returns all commits unfiltered",
+			name: "returns all commits unfiltered, with the files each changed",
 			setup: func(t *testing.T, r *gitops.Repo, dir string) {
 				writeFile(t, dir, "a.md", "# A\n")
 				_ = r.CommitFile("a.md", "docs: add a")
-				writeFile(t, dir, "b.md", "# B\n")
-				_ = r.CommitFile("b.md", "docs: add b")
+				writeFile(t, dir, "done/b.md", "# B\n")
+				_ = r.Commit("docs: add b")
 			},
 			wantCount: 2,
+			wantFiles: [][]string{{"done/b.md"}, {"a.md"}},
 		},
 		{
 			name: "filters by filename",
@@ -307,6 +363,11 @@ func TestRepo_Log(t *testing.T) {
 			}
 			if len(entries) != tt.wantCount {
 				t.Errorf("count = %d, want %d", len(entries), tt.wantCount)
+			}
+			for i, want := range tt.wantFiles {
+				if !slices.Equal(entries[i].Files, want) {
+					t.Errorf("entry %d files = %v, want %v", i, entries[i].Files, want)
+				}
 			}
 		})
 	}

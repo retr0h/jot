@@ -26,18 +26,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
-	"github.com/retr0h/jot/internal/gitops"
 )
 
 var (
 	taskDoneSlugFlag string
 	taskDoneDescFlag string
+	taskDoneLineFlag int
 )
 
-// taskDoneCmd implements `jot task done --slug <slug> --desc <description>`.
-// Finds the @task line in the note file matching description (substring,
-// case-insensitive), appends done:YYYY-MM-DD, and writes the file back.
-// Auto-commits after.
+// taskDoneCmd implements `jot task done --slug <slug> --desc <description>`
+// and `jot task done --slug <slug> --line <n>`. Finds the open task by its
+// line, or by description (an exact match, else the only one containing it,
+// case-insensitive; several matches name their lines), appends
+// done:YYYY-MM-DD, and writes the file back. The service commits it.
 var taskDoneCmd = &cobra.Command{
 	Use:   "done",
 	Short: "Mark a task as complete",
@@ -48,6 +49,20 @@ var taskDoneCmd = &cobra.Command{
 
 		slug := taskDoneSlugFlag
 		desc := taskDoneDescFlag
+
+		if taskDoneLineFlag > 0 {
+			if slug == "" {
+				return fmt.Errorf("--line needs --slug")
+			}
+			if err := svc.MarkTaskDoneAt(slug, taskDoneLineFlag); err != nil { // commits too
+				return err
+			}
+			cli.Print(
+				out,
+				cli.Success(out, fmt.Sprintf("task marked done: line %d", taskDoneLineFlag)),
+			)
+			return nil
+		}
 
 		if slug == "" || desc == "" {
 			pickedSlug, pickedDesc, err := pickTask(notesDir)
@@ -62,17 +77,8 @@ var taskDoneCmd = &cobra.Command{
 			}
 		}
 
-		if err := svc.MarkTaskDone(slug, desc); err != nil {
+		if err := svc.MarkTaskDone(slug, desc); err != nil { // commits too
 			return err
-		}
-
-		// Auto-commit.
-		if repo, err := gitops.OpenRepo(notesDir); err == nil {
-			msg := gitops.FormatCommitMessage(
-				fmt.Sprintf("task: done %q in %s", desc, slug),
-				"",
-			)
-			_ = repo.Commit(msg)
 		}
 
 		cli.Print(out, cli.Success(
@@ -88,4 +94,6 @@ func init() {
 		StringVarP(&taskDoneSlugFlag, "slug", "s", "", "note slug containing the task (fzf if omitted)")
 	taskDoneCmd.Flags().
 		StringVarP(&taskDoneDescFlag, "desc", "D", "", "task description (fzf if omitted)")
+	taskDoneCmd.Flags().
+		IntVarP(&taskDoneLineFlag, "line", "l", 0, "the task's 1-based line in the note file; needs --slug")
 }

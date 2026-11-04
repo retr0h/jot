@@ -23,12 +23,11 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"slices"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/retr0h/jot/internal/gitops"
 	"github.com/retr0h/jot/internal/jot"
 )
 
@@ -36,7 +35,7 @@ import (
 func (s *Server) registerTools() {
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_notes",
-		Description: "List all notes, optionally filtered by tag name.",
+		Description: "List notes as summaries (slug, title, description, tags, dates, open tasks), optionally filtered by tag. Pass full for bodies.",
 	}, s.handleListNotes)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -46,8 +45,18 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_note",
-		Description: "Create a new markdown note with YAML front-matter scaffold. Supports secure (encrypted) creation.",
+		Description: "Create a new markdown note with YAML front-matter scaffold; a dir/Title title creates it in that folder. Refuses to overwrite. Supports secure (encrypted) creation.",
 	}, s.handleCreateNote)
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "append_note",
+		Description: "Append text to the end of an existing note's body. Works on secure notes.",
+	}, s.handleAppendNote)
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "update_note",
+		Description: "Replace an existing note's body, keeping its front-matter. Content that starts with its own --- front-matter replaces the whole file.",
+	}, s.handleUpdateNote)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "delete_note",
@@ -56,7 +65,7 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "search_notes",
-		Description: "Case-insensitive substring search across note titles and bodies.",
+		Description: "Case-insensitive substring search across note titles and bodies. Returns summaries with the first matching line; pass full for bodies.",
 	}, s.handleSearchNotes)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -76,7 +85,7 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_tasks",
-		Description: `List tasks filtered by status ("open", "done", or "all") and optionally by tag.`,
+		Description: `List tasks filtered by status ("open", "done", or "all"), tag, and the date they were done. Each task carries its note_slug and file line.`,
 	}, s.handleListTasks)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -86,7 +95,7 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "task_done",
-		Description: "Mark a task as complete by appending done:YYYY-MM-DD to the @task marker.",
+		Description: "Mark a task complete (appends done:YYYY-MM-DD). Name it by line, as list_tasks reports, or by description.",
 	}, s.handleTaskDone)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -98,12 +107,18 @@ func (s *Server) registerTools() {
 		Name:        "list_tags",
 		Description: "List all unique tags across all notes (frontmatter + inline #tags + task tags).",
 	}, s.handleListTags)
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "history",
+		Description: "List recent commits to the notes, newest first, with the notes each changed. Filter by note and by time to see what changed since a session.",
+	}, s.handleHistory)
 }
 
 // ─── argument structs ─────────────────────────────────────────────────────────
 
 type listNotesArgs struct {
-	Tag string `json:"tag,omitempty" jsonschema:"Filter to notes carrying this tag (optional)."`
+	Tag  string `json:"tag,omitempty"  jsonschema:"Filter to notes carrying this tag (optional)."`
+	Full bool   `json:"full,omitempty" jsonschema:"Return whole notes with bodies, tasks and links instead of summaries."`
 }
 
 type getNoteArgs struct {
@@ -121,7 +136,24 @@ type deleteNoteArgs struct {
 }
 
 type searchNotesArgs struct {
-	Query string `json:"query" jsonschema:"Case-insensitive substring to search for."`
+	Query string `json:"query"          jsonschema:"Case-insensitive substring to search for."`
+	Full  bool   `json:"full,omitempty" jsonschema:"Return whole notes with bodies instead of summaries."`
+}
+
+type appendNoteArgs struct {
+	Slug    string `json:"slug"    jsonschema:"Slug of an existing note, such as memory/projects."`
+	Content string `json:"content" jsonschema:"Markdown to add at the end of the note's body."`
+}
+
+type updateNoteArgs struct {
+	Slug    string `json:"slug"    jsonschema:"Slug of an existing note."`
+	Content string `json:"content" jsonschema:"New body. Start it with a --- front-matter block to replace the whole file."`
+}
+
+type historyArgs struct {
+	Slug  string `json:"slug,omitempty"  jsonschema:"Only commits that changed this note (optional)."`
+	Since string `json:"since,omitempty" jsonschema:"Only commits at or after this time: YYYY-MM-DD or RFC 3339 (optional)."`
+	Limit int    `json:"limit,omitempty" jsonschema:"Most commits to return, newest first (default 20, max 200)."`
 }
 
 type renameNoteArgs struct {
@@ -138,13 +170,15 @@ type decryptNoteArgs struct {
 }
 
 type listTasksArgs struct {
-	Status string `json:"status,omitempty" jsonschema:"Task status filter: open, done, or all (default all)."`
-	Tag    string `json:"tag,omitempty"    jsonschema:"Filter to tasks carrying this tag (optional)."`
+	Status    string `json:"status,omitempty"     jsonschema:"Task status filter: open, done, or all (default all)."`
+	Tag       string `json:"tag,omitempty"        jsonschema:"Filter to tasks carrying this tag (optional)."`
+	DoneSince string `json:"done_since,omitempty" jsonschema:"Only tasks done on or after this date, YYYY-MM-DD (optional; implies done)."`
 }
 
 type taskDoneArgs struct {
-	Slug string `json:"slug" jsonschema:"Note slug containing the task."`
-	Desc string `json:"desc" jsonschema:"Task description (substring match, case-insensitive)."`
+	Slug string `json:"slug"           jsonschema:"Note slug containing the task."`
+	Desc string `json:"desc,omitempty" jsonschema:"Task description: an exact match wins, else the only task containing it (case-insensitive)."`
+	Line int    `json:"line,omitempty" jsonschema:"The task's line in the note, as list_tasks reports it; takes precedence over desc."`
 }
 
 type taskAddArgs struct {
@@ -173,7 +207,24 @@ func (s *Server) handleListNotes(
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
-	return textResult(jsonOrErr(notes)), nil, nil
+	return textResult(notesResult(notes, "", args.Full)), nil, nil
+}
+
+// notesResult renders notes in full, or as summaries so an agent pays only
+// for what it needs to pick a note.
+func notesResult(
+	notes []*jot.Note,
+	query string,
+	full bool,
+) string {
+	if full {
+		return jsonOrErr(notes)
+	}
+	summaries := make([]jot.NoteSummary, 0, len(notes))
+	for _, n := range notes {
+		summaries = append(summaries, jot.Summarize(n, query))
+	}
+	return jsonOrErr(summaries)
 }
 
 func (s *Server) handleGetNote(
@@ -205,11 +256,38 @@ func (s *Server) handleCreateNote(
 	if err != nil {
 		return textResult(fmt.Sprintf("error: create note: %v", err)), nil, nil
 	}
-	s.commit("note: add " + slug)
 
 	return textResult(
 		fmt.Sprintf(`{"slug": %q, "path": %q, "secure": %t}`, slug, notePath, args.Secure),
 	), nil, nil
+}
+
+func (s *Server) handleAppendNote(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args appendNoteArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+	if err := s.store.AppendNote(args.Slug, args.Content); err != nil {
+		return textResult(fmt.Sprintf("error: append to note %q: %v", args.Slug, err)), nil, nil
+	}
+	return textResult(fmt.Sprintf(`{"appended": %q}`, args.Slug)), nil, nil
+}
+
+func (s *Server) handleUpdateNote(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args updateNoteArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if args.Slug == "" {
+		return textResult("error: slug is required"), nil, nil
+	}
+	if err := s.store.UpdateNote(args.Slug, args.Content); err != nil {
+		return textResult(fmt.Sprintf("error: update note %q: %v", args.Slug, err)), nil, nil
+	}
+	return textResult(fmt.Sprintf(`{"updated": %q}`, args.Slug)), nil, nil
 }
 
 func (s *Server) handleDeleteNote(
@@ -224,7 +302,6 @@ func (s *Server) handleDeleteNote(
 	if err := s.store.DeleteNote(args.Slug); err != nil {
 		return textResult(fmt.Sprintf("error: delete note %q: %v", args.Slug, err)), nil, nil
 	}
-	s.commit("note: delete " + args.Slug)
 
 	return textResult(fmt.Sprintf(`{"deleted": %q}`, args.Slug)), nil, nil
 }
@@ -241,7 +318,7 @@ func (s *Server) handleSearchNotes(
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
-	return textResult(jsonOrErr(results)), nil, nil
+	return textResult(notesResult(results, args.Query, args.Full)), nil, nil
 }
 
 func (s *Server) handleRenameNote(
@@ -260,7 +337,6 @@ func (s *Server) handleRenameNote(
 	if err != nil {
 		return textResult(fmt.Sprintf("error: rename note: %v", err)), nil, nil
 	}
-	s.commit(fmt.Sprintf("note: rename %s -> %s", args.Slug, newSlug))
 
 	return textResult(fmt.Sprintf(`{"old_slug": %q, "new_slug": %q}`, args.Slug, newSlug)), nil, nil
 }
@@ -277,7 +353,6 @@ func (s *Server) handleEncryptNote(
 	if err := s.store.EncryptNote(args.Slug); err != nil {
 		return textResult(fmt.Sprintf("error: encrypt note %q: %v", args.Slug, err)), nil, nil
 	}
-	s.commit("note(secure): encrypt " + args.Slug)
 
 	return textResult(fmt.Sprintf(`{"encrypted": %q}`, args.Slug)), nil, nil
 }
@@ -294,7 +369,6 @@ func (s *Server) handleDecryptNote(
 	if err := s.store.DecryptNote(args.Slug); err != nil {
 		return textResult(fmt.Sprintf("error: decrypt note %q: %v", args.Slug, err)), nil, nil
 	}
-	s.commit("note(secure): decrypt " + args.Slug)
 
 	return textResult(fmt.Sprintf(`{"decrypted": %q}`, args.Slug)), nil, nil
 }
@@ -308,9 +382,18 @@ func (s *Server) handleListTasks(
 	if status == "" {
 		status = "all"
 	}
+	if args.DoneSince != "" {
+		if _, err := time.Parse("2006-01-02", args.DoneSince); err != nil {
+			return textResult("error: done_since must be a YYYY-MM-DD date"), nil, nil
+		}
+		status = "done"
+	}
 	tasks, err := s.store.AllTasks(status, args.Tag)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
+	}
+	if args.DoneSince != "" {
+		tasks = jot.DoneSince(tasks, args.DoneSince)
 	}
 	return textResult(jsonOrErr(tasks)), nil, nil
 }
@@ -323,14 +406,21 @@ func (s *Server) handleTaskDone(
 	if args.Slug == "" {
 		return textResult("error: slug is required"), nil, nil
 	}
+	if args.Line > 0 {
+		if err := s.store.MarkTaskDoneAt(args.Slug, args.Line); err != nil {
+			return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
+		}
+		return textResult(
+			fmt.Sprintf(`{"slug": %q, "line": %d, "done": true}`, args.Slug, args.Line),
+		), nil, nil
+	}
 	if args.Desc == "" {
-		return textResult("error: desc is required"), nil, nil
+		return textResult("error: desc or line is required"), nil, nil
 	}
 
 	if err := s.store.MarkTaskDone(args.Slug, args.Desc); err != nil {
 		return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
 	}
-	s.commit(fmt.Sprintf("task: done %q in %s", args.Desc, args.Slug))
 
 	return textResult(
 		fmt.Sprintf(`{"slug": %q, "task": %q, "done": true}`, args.Slug, args.Desc),
@@ -356,7 +446,6 @@ func (s *Server) handleTaskAdd(
 	if err := s.store.AddTask(args.Slug, args.Title, task); err != nil {
 		return textResult(fmt.Sprintf("error: add task: %v", err)), nil, nil
 	}
-	s.commit(fmt.Sprintf("task: add %q to %s", task.Description, args.Slug))
 
 	return textResult(jsonOrErr(map[string]any{
 		"slug": args.Slug,
@@ -406,18 +495,94 @@ func (s *Server) handleListTags(
 	return textResult(jsonOrErr(tags)), nil, nil
 }
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
-// commit records a successful write the way the CLI does. A failed commit
-// is logged rather than returned: the write itself already succeeded.
-func (s *Server) commit(subject string) {
-	if s.committer == nil {
-		return
-	}
-	if err := s.committer.Commit(gitops.FormatCommitMessage(subject, "")); err != nil {
-		s.logger.Warn("commit failed", slog.String("error", err.Error()))
-	}
+// historyEntry is one commit as the history tool reports it.
+type historyEntry struct {
+	Hash    string   `json:"hash"`
+	Date    string   `json:"date"`
+	Author  string   `json:"author"`
+	Message string   `json:"message"`
+	Notes   []string `json:"notes"` // slugs of the notes the commit changed
 }
+
+func (s *Server) handleHistory(
+	_ context.Context,
+	_ *mcpsdk.CallToolRequest,
+	args historyArgs,
+) (*mcpsdk.CallToolResult, any, error) {
+	if s.history == nil {
+		return textResult("error: the notes dir is not a git repository"), nil, nil
+	}
+
+	slug := ""
+	if args.Slug != "" {
+		clean, err := jot.CleanSlug(args.Slug)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		slug = clean
+	}
+
+	var since time.Time
+	if args.Since != "" {
+		t, err := parseSince(args.Since)
+		if err != nil {
+			return textResult("error: since must be YYYY-MM-DD or RFC 3339"), nil, nil
+		}
+		since = t
+	}
+
+	limit := min(max(args.Limit, 0), 200)
+	if limit == 0 {
+		limit = 20
+	}
+	// A secure note's edits change its vault file, not its .md, so filters
+	// match on the notes each commit touched rather than on one file path.
+	// ponytail: filtered after reading 1000 commits; page gitops.Log if repos outgrow it.
+	fetch := limit
+	if slug != "" || !since.IsZero() {
+		fetch = 1000
+	}
+
+	entries, err := s.history.Log("", fetch)
+	if err != nil {
+		return textResult("error: " + err.Error()), nil, nil
+	}
+
+	out := make([]historyEntry, 0, min(len(entries), limit))
+	for _, e := range entries {
+		if len(out) == limit {
+			break
+		}
+		notes := make([]string, 0, len(e.Files))
+		for _, f := range e.Files {
+			if note, ok := jot.NoteSlugForPath(f); ok {
+				notes = append(notes, note)
+			}
+		}
+		// Author dates need not follow log order, so an old one is skipped, not a stop.
+		if e.Date.Before(since) || (slug != "" && !slices.Contains(notes, slug)) {
+			continue
+		}
+		out = append(out, historyEntry{
+			Hash:    e.Hash,
+			Date:    e.Date.Format(time.RFC3339),
+			Author:  e.Author,
+			Message: e.Message,
+			Notes:   notes,
+		})
+	}
+	return textResult(jsonOrErr(out)), nil, nil
+}
+
+// parseSince reads an RFC 3339 time, or a YYYY-MM-DD date at local midnight.
+func parseSince(value string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
+	}
+	return time.ParseInLocation("2006-01-02", value, time.Local)
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
 // textResult wraps a string as an MCP CallToolResult with a single TextContent
 // block — the canonical response shape for every tool.

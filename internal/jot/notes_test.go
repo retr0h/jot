@@ -26,6 +26,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -64,6 +65,14 @@ func writeNote(t *testing.T, dir, slug, content string) string {
 // newSvc returns a Service rooted at dir with no encryption config.
 func newSvc(dir string) *jot.Service {
 	return &jot.Service{NotesDir: dir}
+}
+
+// symlink creates link pointing at target.
+func symlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
 }
 
 // newSecureSvc returns a Service whose notes dir holds a kvlt vault keyed to
@@ -105,9 +114,12 @@ func TestReadNoteByPath(t *testing.T) {
 		slug      string
 		content   string
 		setup     func(t *testing.T, dir string) string // returns path
+		wantSlug  string
 		wantTitle string
+		wantDesc  string
 		wantTags  []string
 		wantTasks int
+		wantLine  int // file line of the first task, when set
 		wantLinks []string
 		wantErr   bool
 	}{
@@ -118,10 +130,35 @@ func TestReadNoteByPath(t *testing.T) {
 			setup: func(t *testing.T, dir string) string {
 				return writeNote(t, dir, "test-note", testNote)
 			},
+			wantSlug:  "test-note",
 			wantTitle: "Test Note",
 			wantTags:  []string{"work", "sprint"},
 			wantTasks: 3,
+			wantLine:  11, // counted from the top of the file, front-matter included
 			wantLinks: []string{"other-note"},
+		},
+		{
+			name: "note in a folder keeps the folder in its slug",
+			setup: func(t *testing.T, dir string) string {
+				if err := os.MkdirAll(filepath.Join(dir, "done"), 0o700); err != nil {
+					t.Fatalf("mkdir: %v", err)
+				}
+				return writeNote(t, dir, "done/2026-11-02", "---\ntitle: \"Done\"\n"+
+					"description: \"What closed on 11/02\"\ntags: []\n---\n\n- [x] shipped | done:2026-11-02\n")
+			},
+			wantSlug:  "done/2026-11-02",
+			wantTitle: "Done",
+			wantDesc:  "What closed on 11/02",
+			wantTasks: 1,
+			wantLine:  7,
+		},
+		{
+			name: "note outside the notes dir falls back to its file name",
+			setup: func(t *testing.T, _ string) string {
+				return writeNote(t, t.TempDir(), "elsewhere", "# Elsewhere\n")
+			},
+			wantSlug:  "elsewhere",
+			wantTitle: "Elsewhere",
 		},
 		{
 			name: "note without frontmatter uses heading as title",
@@ -175,6 +212,18 @@ func TestReadNoteByPath(t *testing.T) {
 
 			if got.Title != tt.wantTitle {
 				t.Errorf("Title = %q, want %q", got.Title, tt.wantTitle)
+			}
+			if tt.wantSlug != "" && got.Slug != tt.wantSlug {
+				t.Errorf("Slug = %q, want %q", got.Slug, tt.wantSlug)
+			}
+			if got.Description != tt.wantDesc {
+				t.Errorf("Description = %q, want %q", got.Description, tt.wantDesc)
+			}
+			if got.Updated == "" {
+				t.Error("Updated is empty")
+			}
+			if tt.wantLine != 0 && got.Tasks[0].Line != tt.wantLine {
+				t.Errorf("first task Line = %d, want %d", got.Tasks[0].Line, tt.wantLine)
 			}
 
 			if len(got.Tags) != len(tt.wantTags) {
@@ -502,10 +551,61 @@ func TestFindNoteBySlug(t *testing.T) {
 			},
 		},
 		{
+			name: "slug in a folder, given with .md, returns the note",
+			slug: "ops/runbook.md",
+			setup: func(t *testing.T, dir string) {
+				if err := os.MkdirAll(filepath.Join(dir, "ops"), 0o700); err != nil {
+					t.Fatalf("mkdir: %v", err)
+				}
+				writeNote(t, dir, "ops/runbook", testNote)
+			},
+		},
+		{
 			name:    "missing slug returns error",
 			slug:    "no-such-slug",
 			setup:   func(_ *testing.T, _ string) {},
 			wantErr: true,
+		},
+		{
+			name:    "slug escaping the notes dir returns error",
+			slug:    "../../etc/passwd",
+			setup:   func(_ *testing.T, _ string) {},
+			wantErr: true,
+		},
+		{
+			name: "a folder symlinked outside the notes dir is refused",
+			slug: "escape/secret",
+			setup: func(t *testing.T, dir string) {
+				outside := t.TempDir()
+				writeNote(t, outside, "secret", testNote)
+				symlink(t, outside, filepath.Join(dir, "escape"))
+			},
+			wantErr: true,
+		},
+		{
+			name: "a note file symlinked outside the notes dir is refused",
+			slug: "leak",
+			setup: func(t *testing.T, dir string) {
+				outside := writeNote(t, t.TempDir(), "secret", testNote)
+				symlink(t, outside, filepath.Join(dir, "leak.md"))
+			},
+			wantErr: true,
+		},
+		{
+			name: "a broken symlink a write would follow is refused",
+			slug: "dangling",
+			setup: func(t *testing.T, dir string) {
+				symlink(t, filepath.Join(t.TempDir(), "gone.md"), filepath.Join(dir, "dangling.md"))
+			},
+			wantErr: true,
+		},
+		{
+			name: "a symlink that stays inside the notes dir works",
+			slug: "alias",
+			setup: func(t *testing.T, dir string) {
+				target := writeNote(t, dir, "real", testNote)
+				symlink(t, target, filepath.Join(dir, "alias.md"))
+			},
 		},
 	}
 
@@ -526,8 +626,195 @@ func TestFindNoteBySlug(t *testing.T) {
 			if err != nil {
 				t.Fatalf("FindNoteBySlug: unexpected error: %v", err)
 			}
-			if got.Slug != tt.slug {
-				t.Errorf("Slug = %q, want %q", got.Slug, tt.slug)
+			if want := strings.TrimSuffix(tt.slug, ".md"); got.Slug != want {
+				t.Errorf("Slug = %q, want %q", got.Slug, want)
+			}
+		})
+	}
+}
+
+// ─── CleanSlug ───────────────────────────────────────────────────────────────
+
+func TestCleanSlug(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		slug    string
+		want    string
+		wantErr bool
+	}{
+		{name: "plain slug", slug: "todo", want: "todo"},
+		{name: "folder slug", slug: "done/2026-11-03", want: "done/2026-11-03"},
+		{name: "trailing .md and redundant parts", slug: "./ops//runbook.md", want: "ops/runbook"},
+		{name: "dot-dot inside the dir stays inside", slug: "ops/../todo", want: "todo"},
+		{name: "empty", slug: "", wantErr: true},
+		{name: "blank", slug: "   ", wantErr: true},
+		{name: "current dir", slug: ".", wantErr: true},
+		{name: "absolute path", slug: "/etc/passwd", wantErr: true},
+		{name: "parent dir", slug: "..", wantErr: true},
+		{name: "escapes the notes dir", slug: "ops/../../x", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := jot.CleanSlug(tt.slug)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("CleanSlug(%q): expected error, got %q", tt.slug, got)
+				}
+				return
+			}
+			if err != nil || got != tt.want {
+				t.Errorf("CleanSlug(%q) = %q, %v; want %q", tt.slug, got, err, tt.want)
+			}
+		})
+	}
+}
+
+// ─── NoteSlugForPath ─────────────────────────────────────────────────────────
+
+func TestNoteSlugForPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		path   string
+		want   string
+		wantOK bool
+	}{
+		{name: "a note's file", path: "done/2026-11-03.md", want: "done/2026-11-03", wantOK: true},
+		{
+			name:   "a secure note's body in the vault",
+			path:   ".kvlt/secrets/local/jot/ops%2Fkeys.age",
+			want:   "ops/keys",
+			wantOK: true,
+		},
+		{name: "a vault file that is not a body", path: ".kvlt/secrets/local/jot/.keys.age.tmp"},
+		{name: "a vault key that does not unescape", path: ".kvlt/secrets/local/jot/bad%zz.age"},
+		{name: "vault config", path: ".kvlt/vaults/local/jot.yaml"},
+		{name: "any other file", path: "README"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := jot.NoteSlugForPath(tt.path)
+			if ok != tt.wantOK || (ok && got != tt.want) {
+				t.Errorf(
+					"NoteSlugForPath(%q) = %q, %t; want %q, %t",
+					tt.path,
+					got,
+					ok,
+					tt.want,
+					tt.wantOK,
+				)
+			}
+		})
+	}
+}
+
+// ─── Summarize ───────────────────────────────────────────────────────────────
+
+func TestSummarize(t *testing.T) {
+	t.Parallel()
+
+	note := &jot.Note{
+		Slug:        "ops/runbook",
+		Title:       "Runbook",
+		Description: "Deploy steps",
+		Tags:        []string{"ops"},
+		Created:     "2026-05-14",
+		Updated:     "2026-11-03T10:00:00-08:00",
+		Secure:      true,
+		Body:        "intro\nRestart the API pods\n" + strings.Repeat("x", 250) + " needle\n",
+		Tasks:       []jot.Task{{Done: false}, {Done: true}, {Done: false}},
+	}
+
+	tests := []struct {
+		name      string
+		query     string
+		wantMatch string
+	}{
+		{name: "no query leaves Match empty"},
+		{
+			name:      "first matching line, case-insensitive",
+			query:     "restart",
+			wantMatch: "Restart the API pods",
+		},
+		{
+			name:      "long matching line is capped",
+			query:     "needle",
+			wantMatch: strings.Repeat("x", 200) + "…",
+		},
+		{name: "title-only match leaves Match empty", query: "runbook"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			want := jot.NoteSummary{
+				Slug:        note.Slug,
+				Title:       note.Title,
+				Description: note.Description,
+				Tags:        note.Tags,
+				Created:     note.Created,
+				Updated:     note.Updated,
+				Secure:      true,
+				OpenTasks:   2,
+				Match:       tt.wantMatch,
+			}
+			if got := jot.Summarize(note, tt.query); !reflect.DeepEqual(got, want) {
+				t.Errorf("Summarize() = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+// ─── DoneSince ───────────────────────────────────────────────────────────────
+
+func TestDoneSince(t *testing.T) {
+	t.Parallel()
+
+	tasks := []jot.Task{
+		{Description: "old", Done: true, DoneDate: "2026-10-30"},
+		{Description: "on the day", Done: true, DoneDate: "2026-11-02"},
+		{Description: "later", Done: true, DoneDate: "2026-11-03"},
+		{Description: "open", DueDate: "2026-11-05"},
+	}
+
+	tests := []struct {
+		name  string
+		since string
+		want  []string
+	}{
+		{
+			name:  "keeps done tasks on or after the date",
+			since: "2026-11-02",
+			want:  []string{"on the day", "later"},
+		},
+		{name: "a future date keeps none", since: "2027-01-01", want: []string{}},
+		{
+			name:  "an empty date keeps every done task",
+			since: "",
+			want:  []string{"old", "on the day", "later"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := make([]string, 0, len(tasks))
+			for _, task := range jot.DoneSince(tasks, tt.since) {
+				got = append(got, task.Description)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("DoneSince(%q) = %v, want %v", tt.since, got, tt.want)
 			}
 		})
 	}

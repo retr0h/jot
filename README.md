@@ -48,8 +48,11 @@ cat meeting.md | jot note new --title "Meeting Notes"
 echo "secret stuff" | jot note new --title "Credentials" --secure
 jot note list
 jot note search --query "kubernetes"
+jot note append --slug todo --text "Sam prefers mornings"
 jot task list
+jot task list --done-since 2026-11-01
 jot task add --slug todo --desc "call Sam" --due friday --tag work
+jot task done --slug todo --line 9
 jot task due
 jot git log
 ```
@@ -64,7 +67,7 @@ jot git log
 | Git-backed           | Every edit auto-commits; `jot git log/diff/show`        |
 | Secure vaults        | `--secure` encrypts notes via [kvlt] (age + SSH keys)   |
 | Full-text search     | Concurrent goroutine file scan — no index, no database  |
-| MCP server           | 8 tools over stdio for Claude / Cursor / any MCP client |
+| MCP server           | 16 tools over stdio for Claude / Codex / any MCP client |
 | Subdirectory nesting | `jot note new --title "ops/runbook"` for organization   |
 | nvim plugin          | Ships `lua/jot/` — auto-configures obsidian.nvim        |
 | Max Headroom palette | Magenta `#c678dd` accent across CLI, installer, nvim    |
@@ -143,25 +146,33 @@ Auto-discovered by Claude Code via [`.mcp.json`](.mcp.json):
 }
 ```
 
-| Tool           | Description                                                      |
-| -------------- | ---------------------------------------------------------------- |
-| `list_notes`   | List notes, optionally filtered by tag                           |
-| `get_note`     | Read full markdown by slug (transparently decrypts secure notes) |
-| `create_note`  | Create a note with frontmatter (supports `secure: true`)         |
-| `delete_note`  | Remove a note file                                               |
-| `search_notes` | Full-text search                                                 |
-| `rename_note`  | Rename a note and rewrite all `[[wikilinks]]`                    |
-| `encrypt_note` | Encrypt an existing note via kvlt                                |
-| `decrypt_note` | Decrypt a secure note back to plaintext                          |
-| `list_tasks`   | Tasks filtered by status/tag                                     |
-| `task_add`     | Append a task to a note, creating the note if needed             |
-| `task_done`    | Mark a task as complete                                          |
-| `tasks_due`    | Tasks due in a date range                                        |
-| `list_tags`    | All tags across notes                                            |
+| Tool           | Description                                                                 |
+| -------------- | --------------------------------------------------------------------------- |
+| `list_notes`   | Note summaries (title, description, tags, dates); `full` adds bodies        |
+| `get_note`     | Read full markdown by slug (transparently decrypts secure notes)            |
+| `create_note`  | Create a note, in a folder with `dir/Title`; never overwrites               |
+| `append_note`  | Add text to the end of an existing note                                     |
+| `update_note`  | Replace a note's body, or the whole file when content has frontmatter       |
+| `delete_note`  | Remove a note file                                                          |
+| `search_notes` | Full-text search; summaries carry the first matching line                   |
+| `rename_note`  | Rename a note within its folder and rewrite all `[[wikilinks]]`             |
+| `encrypt_note` | Encrypt an existing note via kvlt, keeping every frontmatter field          |
+| `decrypt_note` | Decrypt a secure note back to plaintext                                     |
+| `history`      | Commits newest first with the notes each changed, filtered by note and time |
+| `list_tasks`   | Tasks filtered by status, tag and done date, with each task's file line     |
+| `task_add`     | Append a task to a note, creating the note if needed                        |
+| `task_done`    | Mark a task complete by line or description                                 |
+| `tasks_due`    | Tasks due in a date range                                                   |
+| `list_tags`    | All tags across notes                                                       |
 
-Every write tool commits to the notes repo, like the CLI. Secure notes over MCP
-require passphrase-free SSH keys configured in `ssh_keys` — there is no TTY for
-interactive prompts.
+Every write tool commits to the notes repo, like the CLI, and writers from every
+jot process take the same lock, so agents sharing a notes dir do not lose each
+other's edits. The lock does not cover edits made in your own editor. A note's
+slug is its path under the notes dir without `.md`, such as `done/2026-11-03`.
+Give notes a one-line `description:` in frontmatter so agents can recall them
+from `list_notes` and `search_notes` without reading bodies. Secure notes over
+MCP require passphrase-free SSH keys configured in `ssh_keys` — there is no TTY
+for interactive prompts.
 
 ## ⚙️ Configuration
 
