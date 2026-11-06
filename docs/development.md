@@ -28,7 +28,7 @@ jot (binary)
 │   ├── cli/            theme (maxheadroom palette), banner, output helpers
 │   ├── config/         Config struct, viper mapstructure bindings
 │   ├── gitops/         git integration — commit, log, diff, show
-│   ├── jot/            core domain — parser (@task), editor, slug, date, kvlt
+│   ├── jot/            core domain — parser (tasks), editor, slug, date, kvlt
 │   ├── mcp/            MCP server (stdio, JSON-RPC via go-sdk)
 │   └── version/        build-time identity (ldflags injected)
 ├── lua/jot/            nvim plugin (obsidian.nvim integration)
@@ -61,24 +61,24 @@ timestamp to avoid collisions.
 stages the file and creates a commit. `jot git log` / `jot git diff` /
 `jot git show` surface the history to the user. Nothing is lost.
 
-**`@task` round-trips.** The parser handles both forms:
+**Tasks round-trip.** A task is a markdown checkbox with pipe-delimited metadata
+after the description and `#tag` annotations at the end:
 
 ```
-@task fix the broken deploy script
-@task(fix the broken deploy script | due:friday) #ops
+- [ ] fix the broken deploy script | due:friday #ops
+- [x] fix the broken deploy script | due:2026-05-16 | done:2026-05-17 #ops
 ```
 
-After the interactive prompt (or MCP call) jot rewrites bare markers to the
-resolved `@task(...)` form in place. Editing the file in nvim leaves both forms
-valid; the parser accepts either on the next read.
+The parser reads any `- [ ]` or `- [x]` line, and `FormatTask` writes the same
+form back, so a task edited in nvim and a task written by jot look alike.
 
 **`[[slug]]` links.** Wiki-style links reference other notes by slug.
 obsidian.nvim resolves them and autocompletes on `[[`. jot itself does not
 validate links at write time — broken links surface in the nvim UI.
 
-**Tags in frontmatter.** Tags are YAML `tags:` arrays in frontmatter. `@task`
-markers carry `#tag` annotations outside the parentheses. Both surfaces are
-queryable via `jot tag list` and the MCP `list_notes` tool.
+**Tags in frontmatter.** Tags are YAML `tags:` arrays in frontmatter. Tasks
+carry `#tag` annotations at the end of the line. Both surfaces are queryable via
+`jot tag list` and the MCP `list_notes` tool.
 
 **Interfaces where consumed.** The MCP server defines its own interfaces in
 `internal/mcp/` rather than depending on a concrete type from `internal/jot/`.
@@ -191,19 +191,19 @@ created: 2026-02-01
 
 Steps before promoting to production. See also [[pre-deploy-checklist]].
 
-@task(run smoke tests | due:2026-05-16) #ops #ci @task update rollback docs #ops
-
+- [ ] run smoke tests | due:2026-05-16 #ops #ci
+- [ ] update rollback docs #ops
 - [x] Review diff with team
 - [ ] Tag release
 ```
 
-## @task Syntax
+## Task Syntax
 
-| Form      | Example                                                        |
-| --------- | -------------------------------------------------------------- |
-| Bare      | `@task description #tag`                                       |
-| Resolved  | `@task(description \| due:YYYY-MM-DD) #tag`                    |
-| With done | `@task(description \| due:2026-05-14 \| done:2026-05-15) #tag` |
+| Form      | Example                                                       |
+| --------- | ------------------------------------------------------------- |
+| Open      | `- [ ] description #tag`                                      |
+| With due  | `- [ ] description \| due:YYYY-MM-DD #tag`                    |
+| With done | `- [x] description \| due:2026-05-14 \| done:2026-05-15 #tag` |
 
 Natural language dates accepted by `due:`: `today`, `tomorrow`,
 `monday`...`sunday`, `next week`, `YYYY-MM-DD`.
@@ -212,8 +212,8 @@ Natural language dates accepted by `due:`: `today`, `tomorrow`,
 
 ```
 #c678dd  magenta   accent, banner
-#00d4ff  cyan      info hints
-#ffb86c  orange    (reserved)
+#00d4ff  cyan      info hints, due dates
+#ffb86c  orange    tags
 #50fa7b  green     success, done tasks
 #e5c07b  yellow    (reserved)
 #ff6ec7  pink      errors, overdue tasks
@@ -224,7 +224,7 @@ Natural language dates accepted by `due:`: `today`, `tomorrow`,
 
 All palette values are defined as named constants in `internal/cli/theme.go`.
 Never pass raw hex strings to lipgloss in command or handler code — reference
-the theme roles (`Accent`, `OK`, `Err`, `Info`, `Mute`) instead.
+the theme roles (`Accent`, `OK`, `Err`, `Info`, `Tag`, `Mute`) instead.
 
 ## MCP Server
 
