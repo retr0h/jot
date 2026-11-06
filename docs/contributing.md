@@ -5,7 +5,7 @@ need to follow for a smooth PR review.
 
 ## Prerequisites
 
-- Go 1.25+
+- Go 1.27.3+
 - [just] command runner (`brew install just` / `cargo install just`)
 - golangci-lint (`brew install golangci-lint`)
 
