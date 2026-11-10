@@ -408,47 +408,110 @@ func (s *Service) AllTags() ([]string, error) {
 }
 
 // MarkTaskDone marks done the open task in the given note that desc names:
-// an exact description match, else the only one containing desc.
+// an exact description match, else the only one containing desc. It refuses
+// a task with an open blocker unless force is set.
 func (s *Service) MarkTaskDone(
 	slug string,
 	desc string,
+	force bool,
 ) error {
 	_, notePath, err := slugPath(s.NotesDir, slug)
 	if err != nil {
 		return err
 	}
 	return s.write(func() (string, error) {
-		return fmt.Sprintf("task: done %q in %s", desc, slug), markTaskDone(notePath, desc)
+		subject := fmt.Sprintf("task: done %q in %s", desc, slug)
+		byID, err := s.blockerIndex(force)
+		if err != nil {
+			return subject, err
+		}
+		return subject, markTaskDone(notePath, desc, byID)
 	})
 }
 
 // MarkTaskDoneAt marks done the open task on line (1-based, as Task.Line
-// reports it) of the given note.
+// reports it) of the given note. It refuses a task with an open blocker
+// unless force is set.
 func (s *Service) MarkTaskDoneAt(
 	slug string,
 	line int,
+	force bool,
 ) error {
 	_, notePath, err := slugPath(s.NotesDir, slug)
 	if err != nil {
 		return err
 	}
 	return s.write(func() (string, error) {
-		return fmt.Sprintf("task: done line %d in %s", line, slug), markTaskDoneAt(notePath, line)
+		subject := fmt.Sprintf("task: done line %d in %s", line, slug)
+		byID, err := s.blockerIndex(force)
+		if err != nil {
+			return subject, err
+		}
+		return subject, markTaskDoneAt(notePath, line, byID)
 	})
+}
+
+// MarkTaskDoneByID marks done the open task carrying id, in whichever note
+// holds it. It refuses a task with an open blocker unless force is set.
+func (s *Service) MarkTaskDoneByID(
+	id string,
+	force bool,
+) error {
+	id = strings.ToLower(strings.TrimSpace(id))
+	return s.write(func() (string, error) {
+		subject := "task: done " + id
+		byID, err := tasksByID(s.NotesDir)
+		if err != nil {
+			return subject, err
+		}
+		found := byID[id]
+		switch {
+		case len(found) == 0:
+			return subject, fmt.Errorf("no task with id %s", id)
+		case len(found) > 1:
+			return subject, fmt.Errorf(
+				"id %s is on %d tasks; pick one by note and line",
+				id,
+				len(found),
+			)
+		case found[0].Done:
+			return subject, fmt.Errorf("task %s is already done", id)
+		}
+		// The slug came from a file under NotesDir, so it maps straight back to it.
+		notePath := filepath.Join(s.NotesDir, filepath.FromSlash(found[0].NoteSlug)+".md")
+		if force {
+			byID = nil
+		}
+		return subject + " in " + found[0].NoteSlug, markTaskDoneAt(notePath, found[0].Line, byID)
+	})
+}
+
+// blockerIndex returns the task index the blocker check reads, or nil when
+// force skips the check.
+func (s *Service) blockerIndex(force bool) (map[string][]Task, error) {
+	if force {
+		return nil, nil
+	}
+	return tasksByID(s.NotesDir)
 }
 
 // AddTask appends a checkbox task to the note at slug, creating the note
 // with title (the slug's last segment when empty) if it does not exist.
-// Slugs may name a subdirectory, such as "done/2026-11-03".
+// Slugs may name a subdirectory, such as "done/2026-11-03". It returns the
+// task as written, with the ID it was given.
 func (s *Service) AddTask(
 	slug string,
 	title string,
 	task RawTask,
-) error {
-	return s.write(func() (string, error) {
+) (RawTask, error) {
+	var added RawTask
+	err := s.write(func() (string, error) {
 		subject := fmt.Sprintf("task: add %q to %s", strings.TrimSpace(task.Description), slug)
-		return subject, addTask(s.NotesDir, slug, title, task)
+		var err error
+		added, err = addTask(s.NotesDir, slug, title, task)
+		return subject, err
 	})
+	return added, err
 }
 
 // ReadNoteByPath reads and returns the note at the given absolute path.

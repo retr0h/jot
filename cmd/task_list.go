@@ -22,6 +22,8 @@ package cmd
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -80,16 +82,32 @@ var taskListCmd = &cobra.Command{
 		todayStr := now.Format("2006-01-02")
 		weekStr := now.AddDate(0, 0, 7).Format("2006-01-02")
 
+		// Blockers and duplicate IDs can sit outside the filtered list.
+		all, err := svc.AllTasks("all", "")
+		if err != nil {
+			return fmt.Errorf("list tasks: %w", err)
+		}
+		byID := jot.IndexByID(all)
+
 		type row struct {
-			done bool
-			desc string
-			due  string
-			note string
-			tags string
+			done  bool
+			id    string
+			dup   bool
+			desc  string
+			due   string
+			after string // open blockers' IDs
+			note  string
+			tags  string
 		}
 
 		rows := make([]row, 0, len(tasks))
 		for _, t := range tasks {
+			var after []string
+			if !t.Done {
+				for _, b := range jot.OpenBlockers(jot.RawTask{After: t.After}, byID) {
+					after = append(after, b.ID)
+				}
+			}
 			due := t.DueDate
 			if due != "" {
 				if resolved, err := jot.ParseDate(due, now); err == nil {
@@ -101,42 +119,45 @@ var taskListCmd = &cobra.Command{
 				tags = "#" + strings.Join(t.Tags, " #")
 			}
 			rows = append(rows, row{
-				done: t.Done,
-				desc: t.Description,
-				due:  due,
-				note: t.NoteSlug,
-				tags: tags,
+				done:  t.Done,
+				id:    t.ID,
+				dup:   len(byID[t.ID]) > 1,
+				desc:  t.Description,
+				due:   due,
+				after: strings.Join(after, ","),
+				note:  t.NoteSlug,
+				tags:  tags,
 			})
 		}
 
-		descW, dueW, noteW := len("DESCRIPTION"), len("DUE"), len("NOTE")
+		idW, descW, dueW, afterW, noteW := len(
+			"ID",
+		), len(
+			"DESCRIPTION",
+		), len(
+			"DUE",
+		), len(
+			"AFTER",
+		), len(
+			"NOTE",
+		)
 		for _, r := range rows {
-			if len(r.desc) > descW {
-				descW = len(r.desc)
-			}
-			if len(r.due) > dueW {
-				dueW = len(r.due)
-			}
-			if len(r.note) > noteW {
-				noteW = len(r.note)
-			}
+			idW = max(idW, len(r.id))
+			descW = max(descW, len(r.desc))
+			dueW = max(dueW, len(r.due))
+			afterW = max(afterW, len(r.after))
+			noteW = max(noteW, len(r.note))
 		}
 
 		cli.Printf(out, "%s\n", cli.Mute(
 			out,
-			cli.Pad(
-				"STATUS",
-				8,
-			)+cli.Pad(
-				"DESCRIPTION",
-				descW+2,
-			)+cli.Pad(
-				"DUE",
-				dueW+2,
-			)+cli.Pad(
-				"NOTE",
-				noteW+2,
-			)+"TAGS",
+			cli.Pad("STATUS", 8)+
+				cli.Pad("ID", idW+2)+
+				cli.Pad("DESCRIPTION", descW+2)+
+				cli.Pad("DUE", dueW+2)+
+				cli.Pad("AFTER", afterW+2)+
+				cli.Pad("NOTE", noteW+2)+
+				"TAGS",
 		))
 
 		theme := cli.ActiveTheme()
@@ -183,6 +204,16 @@ var taskListCmd = &cobra.Command{
 				dueCol = renderCol(theme.Info, padded)
 			}
 
+			idCol := renderCol(theme.Mute, cli.Pad(r.id, idW+2))
+			if r.dup {
+				idCol = renderCol(theme.Err, cli.Pad(r.id, idW+2))
+			}
+
+			afterCol := renderCol(theme.Mute, cli.Pad("-", afterW+2))
+			if r.after != "" {
+				afterCol = renderCol(theme.Warn, cli.Pad(r.after, afterW+2))
+			}
+
 			note := renderCol(theme.Mute, cli.Pad(r.note, noteW+2))
 
 			tagCol := renderCol(theme.Mute, "-")
@@ -190,7 +221,20 @@ var taskListCmd = &cobra.Command{
 				tagCol = renderCol(theme.Tag, r.tags)
 			}
 
-			cli.Printf(out, "%s%s%s%s%s\n", status, desc, dueCol, note, tagCol)
+			cli.Printf(out, "%s%s%s%s%s%s%s\n", status, idCol, desc, dueCol, afterCol, note, tagCol)
+		}
+
+		for _, id := range slices.Sorted(maps.Keys(byID)) {
+			if n := len(byID[id]); n > 1 {
+				cli.Printf(
+					out,
+					"%s\n",
+					cli.Err(
+						out,
+						fmt.Sprintf("id %s is on %d tasks; give one of them a new id", id, n),
+					),
+				)
+			}
 		}
 
 		return nil

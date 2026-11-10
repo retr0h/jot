@@ -21,6 +21,7 @@
 package jot
 
 import (
+	"crypto/rand"
 	"fmt"
 	"regexp"
 	"strings"
@@ -37,11 +38,36 @@ var (
 // RawTask represents a single task extracted from a markdown checkbox line.
 type RawTask struct {
 	Description string
+	ID          string // stable "t-xxxx" handle other tasks point at
 	DueDate     string
 	DoneDate    string
+	After       []string // IDs of tasks that must be done before this one
 	Labels      []string
 	Line        int
 	Done        bool
+}
+
+// taskIDAlphabet is Crockford base32 in lower case: no i, l, o or u, so no
+// character reads as another.
+const taskIDAlphabet = "0123456789abcdefghjkmnpqrstvwxyz"
+
+// NewTaskID returns a random "t-xxxx" ID that is not in taken.
+//
+// ponytail: 4 characters give about a million IDs; random picks rarely clash
+// across clones that add tasks before syncing. Move to 5 (33 million) once
+// a notes directory holds tens of thousands of tasks.
+func NewTaskID(taken map[string]struct{}) string {
+	b := make([]byte, 4)
+	for {
+		_, _ = rand.Read(b) // never returns an error: crypto/rand crashes the program instead
+		id := []byte("t-")
+		for _, c := range b {
+			id = append(id, taskIDAlphabet[c%32])
+		}
+		if _, dup := taken[string(id)]; !dup {
+			return string(id)
+		}
+	}
 }
 
 // ParseTasks extracts all task checkboxes from markdown content.
@@ -87,6 +113,14 @@ func parseTaskContent(content string) RawTask {
 		switch {
 		case idx == 0:
 			task.Description = field
+		case strings.HasPrefix(field, "id:"):
+			task.ID = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(field, "id:")))
+		case strings.HasPrefix(field, "after:"):
+			for _, id := range strings.Split(strings.TrimPrefix(field, "after:"), ",") {
+				if id = strings.ToLower(strings.TrimSpace(id)); id != "" {
+					task.After = append(task.After, id)
+				}
+			}
 		case strings.HasPrefix(field, "due:"):
 			task.DueDate = strings.TrimPrefix(field, "due:")
 		case strings.HasPrefix(field, "done:"):
@@ -108,8 +142,14 @@ func FormatTask(task RawTask) string {
 	}
 
 	parts := []string{task.Description}
+	if task.ID != "" {
+		parts = append(parts, "id:"+task.ID)
+	}
 	if task.DueDate != "" {
 		parts = append(parts, "due:"+task.DueDate)
+	}
+	if len(task.After) > 0 {
+		parts = append(parts, "after:"+strings.Join(task.After, ","))
 	}
 	if task.DoneDate != "" {
 		parts = append(parts, "done:"+task.DoneDate)

@@ -22,6 +22,7 @@ package jot_test
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -148,6 +149,67 @@ func TestParseTasks(t *testing.T) {
 	}
 }
 
+func TestParseTaskDependencies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		content   string
+		wantID    string
+		wantAfter []string
+	}{
+		{
+			name:    "id only",
+			content: "- [ ] ship it | id:t-7k2m",
+			wantID:  "t-7k2m",
+		},
+		{
+			name:      "id and blockers, mixed case and spaces",
+			content:   "- [ ] ship it | id:T-7K2M | due:2026-05-16 | after: t-3m9x, T-0ABC #work",
+			wantID:    "t-7k2m",
+			wantAfter: []string{"t-3m9x", "t-0abc"},
+		},
+		{
+			name:    "no id",
+			content: "- [ ] ship it | due:2026-05-16",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := jot.ParseTasks(tt.content)[0]
+			if got.ID != tt.wantID {
+				t.Errorf("ID = %q, want %q", got.ID, tt.wantID)
+			}
+			if !reflect.DeepEqual(got.After, tt.wantAfter) {
+				t.Errorf("After = %v, want %v", got.After, tt.wantAfter)
+			}
+			if got.Description != "ship it" {
+				t.Errorf("Description = %q, want %q", got.Description, "ship it")
+			}
+		})
+	}
+}
+
+func TestNewTaskID(t *testing.T) {
+	t.Parallel()
+
+	idRe := regexp.MustCompile(`^t-[0-9a-hjkmnp-tv-z]{4}$`)
+	taken := map[string]struct{}{}
+	for range 2000 {
+		id := jot.NewTaskID(taken)
+		if !idRe.MatchString(id) {
+			t.Fatalf("NewTaskID() = %q, want t- and 4 Crockford base32 characters", id)
+		}
+		if _, dup := taken[id]; dup {
+			t.Fatalf("NewTaskID() returned taken ID %q", id)
+		}
+		taken[id] = struct{}{}
+	}
+}
+
 func TestFormatTask(t *testing.T) {
 	t.Parallel()
 
@@ -205,6 +267,27 @@ func TestFormatTask(t *testing.T) {
 			name: "bare description only",
 			task: jot.RawTask{Description: "simple task"},
 			want: "- [ ] simple task",
+		},
+		{
+			name: "id and blockers",
+			task: jot.RawTask{
+				Description: "ship it",
+				ID:          "t-7k2m",
+				DueDate:     "2026-05-16",
+				After:       []string{"t-3m9x", "t-0abc"},
+				Labels:      []string{"work"},
+			},
+			want: "- [ ] ship it | id:t-7k2m | due:2026-05-16 | after:t-3m9x,t-0abc #work",
+		},
+		{
+			name: "done with id",
+			task: jot.RawTask{
+				Description: "ship it",
+				ID:          "t-7k2m",
+				Done:        true,
+				DoneDate:    "2026-05-17",
+			},
+			want: "- [x] ship it | id:t-7k2m | done:2026-05-17",
 		},
 	}
 

@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -1066,7 +1067,7 @@ func TestMarkTaskDone(t *testing.T) {
 			tt.setup(t, dir)
 			svc := newSvc(dir)
 
-			err := svc.MarkTaskDone(tt.slug, tt.desc)
+			err := svc.MarkTaskDone(tt.slug, tt.desc, false)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("MarkTaskDone: expected error, got nil")
@@ -1137,7 +1138,7 @@ func TestMarkTaskDoneAt(t *testing.T) {
 			writeNote(t, dir, "tasks-note", testNote)
 			svc := newSvc(dir)
 
-			err := svc.MarkTaskDoneAt(tt.slug, tt.line)
+			err := svc.MarkTaskDoneAt(tt.slug, tt.line, false)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("MarkTaskDoneAt: expected error, got nil")
@@ -1188,7 +1189,8 @@ func TestAddTask(t *testing.T) {
 			want: []string{
 				`title: "Done 2026-11-02"`,
 				"# Done 2026-11-02\n",
-				"\n- [x] Merged !20 | done:2026-11-02 #cos\n",
+				"\n- [x] Merged !20 | id:t-",
+				" | done:2026-11-02 #cos\n",
 			},
 		},
 		{
@@ -1196,7 +1198,7 @@ func TestAddTask(t *testing.T) {
 			slug:  "inbox/todo",
 			task:  jot.RawTask{Description: "call Sam"},
 			setup: func(_ *testing.T, _ string) {},
-			want:  []string{`title: "todo"`, "- [ ] call Sam\n"},
+			want:  []string{`title: "todo"`, "- [ ] call Sam | id:t-"},
 		},
 		{
 			name: "appends to an existing note without a trailing newline",
@@ -1209,14 +1211,18 @@ func TestAddTask(t *testing.T) {
 			setup: func(t *testing.T, dir string) {
 				writeNote(t, dir, "tasks-note", strings.TrimRight(testNote, "\n"))
 			},
-			want: []string{"title: \"Test Note\"", "\n- [ ] Tag release | due:2026-05-20 #ops\n"},
+			want: []string{
+				"title: \"Test Note\"",
+				"\n- [ ] Tag release | id:t-",
+				" | due:2026-05-20 #ops\n",
+			},
 		},
 		{
 			name:  "done without a date is done today",
 			slug:  "today",
 			task:  jot.RawTask{Description: "x", Done: true},
 			setup: func(_ *testing.T, _ string) {},
-			want:  []string{"- [x] x | done:"},
+			want:  []string{"- [x] x | id:t-", " | done:"},
 		},
 		{
 			name: "note path blocked by a file is a read error",
@@ -1321,7 +1327,7 @@ func TestAddTask(t *testing.T) {
 			tt.setup(t, dir)
 			svc := newSvc(dir)
 
-			err := svc.AddTask(tt.slug, tt.title, tt.task)
+			_, err := svc.AddTask(tt.slug, tt.title, tt.task)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("AddTask: expected error, got nil")
@@ -1354,6 +1360,227 @@ func TestAddTask(t *testing.T) {
 					last.Description,
 					tt.task.Description,
 				)
+			}
+		})
+	}
+}
+
+// ─── task dependencies ──────────────────────────────────────────────────────
+
+// depNote's tasks sit on file lines 6 (blocker), 7 (blocked by it) and 8
+// (blocked by a task that no longer exists).
+const depNote = "---\ntitle: \"todo\"\ntags: []\n---\n\n" +
+	"- [ ] write docs | id:t-0001\n" +
+	"- [ ] ship it | id:t-0002 | after:t-0001\n" +
+	"- [ ] orphan | id:t-0003 | after:t-gone\n"
+
+// lockedNote writes a one-task note at slug and then sets its mode, so reads
+// (0o000) or writes (0o400) of it fail.
+func lockedNote(t *testing.T, dir, slug string, mode os.FileMode) {
+	t.Helper()
+	if err := os.Chmod(writeNote(t, dir, slug, "- [ ] x | id:t-0009\n"), mode); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+}
+
+func TestAddTaskIDs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		missingDir bool // the notes directory does not exist yet
+		setup      func(t *testing.T, dir string)
+		task       jot.RawTask
+		want       string // substring of the written line, after the new ID
+		wantErr    bool
+	}{
+		{name: "assigns an ID", task: jot.RawTask{Description: "call Sam"}},
+		{
+			name:       "creates a notes directory that does not exist yet",
+			missingDir: true,
+			task:       jot.RawTask{Description: "call Sam"},
+		},
+		{
+			name:    "an unreadable note fails the ID check",
+			setup:   func(t *testing.T, dir string) { lockedNote(t, dir, "locked", 0o000) },
+			task:    jot.RawTask{Description: "call Sam"},
+			wantErr: true,
+		},
+		{
+			name:    "a note it cannot write",
+			setup:   func(t *testing.T, dir string) { lockedNote(t, dir, "inbox", 0o400) },
+			task:    jot.RawTask{Description: "call Sam"},
+			wantErr: true,
+		},
+		{
+			name: "keeps blockers that exist, in lower case",
+			task: jot.RawTask{Description: "call Sam", After: []string{"T-0001"}},
+			want: " | after:t-0001",
+		},
+		{
+			name:    "refuses a blocker that does not exist",
+			task:    jot.RawTask{Description: "call Sam", After: []string{"t-zzzz"}},
+			wantErr: true,
+		},
+		{
+			name:    "refuses an ID another task has",
+			task:    jot.RawTask{Description: "call Sam", ID: "t-0002"},
+			wantErr: true,
+		},
+	}
+
+	idRe := regexp.MustCompile(`^t-[0-9a-hjkmnp-tv-z]{4}$`)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			if tt.missingDir {
+				dir = filepath.Join(dir, "notes")
+			} else {
+				writeNote(t, dir, "todo", depNote)
+			}
+			if tt.setup != nil {
+				tt.setup(t, dir)
+			}
+			svc := newSvc(dir)
+
+			got, err := svc.AddTask("inbox", "", tt.task)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("AddTask: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("AddTask: unexpected error: %v", err)
+			}
+			if !idRe.MatchString(got.ID) {
+				t.Fatalf("AddTask ID = %q, want t- and 4 Crockford base32 characters", got.ID)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "inbox.md"))
+			if line := "- [ ] call Sam | id:" + got.ID + tt.want; err != nil ||
+				!strings.Contains(string(data), line) {
+				t.Errorf("note = %q, %v; want line %q", data, err, line)
+			}
+		})
+	}
+}
+
+func TestMarkTaskDoneBlocked(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, svc *jot.Service)
+		op      func(svc *jot.Service) error
+		wantErr string // substring of the error; "" means it succeeds
+	}{
+		{
+			name:    "by ID, refuses while a blocker is open",
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("T-0002", false) },
+			wantErr: `blocked by t-0001 "write docs"`,
+		},
+		{
+			name:    "by description, refuses while a blocker is open",
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDone("todo", "ship it", false) },
+			wantErr: "blocked by t-0001",
+		},
+		{
+			name:    "by line, refuses while a blocker is open",
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneAt("todo", 7, false) },
+			wantErr: "blocked by t-0001",
+		},
+		{
+			name: "a blocker in another note blocks",
+			setup: func(t *testing.T, svc *jot.Service) {
+				writeNote(t, svc.NotesDir, "work", "- [ ] deploy | id:t-0004 | after:t-0001\n")
+			},
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0004", false) },
+			wantErr: "blocked by t-0001",
+		},
+		{
+			name: "force closes a blocked task",
+			op:   func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0002", true) },
+		},
+		{
+			name: "closing the blocker unblocks it",
+			setup: func(t *testing.T, svc *jot.Service) {
+				if err := svc.MarkTaskDoneByID("t-0001", false); err != nil {
+					t.Fatalf("setup: %v", err)
+				}
+			},
+			op: func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0002", false) },
+		},
+		{
+			name: "a blocker that no longer exists does not block",
+			op:   func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0003", false) },
+		},
+		{
+			name:    "an unknown ID",
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-zzzz", false) },
+			wantErr: "no task with id t-zzzz",
+		},
+		{
+			name: "an ID on two tasks is refused",
+			setup: func(t *testing.T, svc *jot.Service) {
+				writeNote(t, svc.NotesDir, "clone", "- [ ] clash | id:t-0001\n")
+			},
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0001", false) },
+			wantErr: "id t-0001 is on 2 tasks",
+		},
+		{
+			name: "force skips the check, by description",
+			op:   func(svc *jot.Service) error { return svc.MarkTaskDone("todo", "ship it", true) },
+		},
+		{
+			name:    "an unreadable note fails the check, by description",
+			setup:   func(t *testing.T, svc *jot.Service) { lockedNote(t, svc.NotesDir, "locked", 0o000) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDone("todo", "write docs", false) },
+			wantErr: "permission denied",
+		},
+		{
+			name:    "an unreadable note fails the check, by line",
+			setup:   func(t *testing.T, svc *jot.Service) { lockedNote(t, svc.NotesDir, "locked", 0o000) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneAt("todo", 6, false) },
+			wantErr: "permission denied",
+		},
+		{
+			name:    "an unreadable note fails the check, by ID",
+			setup:   func(t *testing.T, svc *jot.Service) { lockedNote(t, svc.NotesDir, "locked", 0o000) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0001", false) },
+			wantErr: "permission denied",
+		},
+		{
+			name: "a task already done",
+			setup: func(t *testing.T, svc *jot.Service) {
+				if err := svc.MarkTaskDoneByID("t-0001", false); err != nil {
+					t.Fatalf("setup: %v", err)
+				}
+			},
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0001", false) },
+			wantErr: "already done",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeNote(t, dir, "todo", depNote)
+			svc := newSvc(dir)
+			if tt.setup != nil {
+				tt.setup(t, svc)
+			}
+
+			err := tt.op(svc)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want one containing %q", err, tt.wantErr)
 			}
 		})
 	}
@@ -1548,18 +1775,19 @@ func TestServiceCommitter(t *testing.T) {
 		},
 		{
 			name: "task done",
-			op:   func(svc *jot.Service) error { return svc.MarkTaskDone("mem", "ship it") },
+			op:   func(svc *jot.Service) error { return svc.MarkTaskDone("mem", "ship it", false) },
 			want: []string{`task: done "ship it" in mem`},
 		},
 		{
 			name: "task done by line",
-			op:   func(svc *jot.Service) error { return svc.MarkTaskDoneAt("mem", 6) },
+			op:   func(svc *jot.Service) error { return svc.MarkTaskDoneAt("mem", 6, false) },
 			want: []string{"task: done line 6 in mem"},
 		},
 		{
 			name: "task add",
 			op: func(svc *jot.Service) error {
-				return svc.AddTask("mem", "", jot.RawTask{Description: " write docs "})
+				_, err := svc.AddTask("mem", "", jot.RawTask{Description: " write docs "})
+				return err
 			},
 			want: []string{`task: add "write docs" to mem`},
 		},

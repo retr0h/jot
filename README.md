@@ -64,6 +64,7 @@ jot git log
 | Markdown notes       | `.md` files with YAML frontmatter, edited in nvim       |
 | `[[wiki links]]`     | Cross-reference notes by slug; obsidian.nvim navigates  |
 | Checkbox tasks       | `- [ ] desc \| due:date #tag` with due dates + tags     |
+| Task dependencies    | `after:t-xxxx` blocks closing a task until that one is  |
 | Git-backed           | Every edit auto-commits; `jot git log/diff/show`        |
 | Secure vaults        | `--secure` encrypts notes via [kvlt] (age + SSH keys)   |
 | Full-text search     | Concurrent goroutine file scan — no index, no database  |

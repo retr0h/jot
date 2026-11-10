@@ -81,7 +81,9 @@ type NoteSummary struct {
 // Task is a checkbox task extracted from a note's markdown body.
 type Task struct {
 	NoteSlug    string   `json:"note_slug"`
+	ID          string   `json:"id,omitempty"`
 	Description string   `json:"description"`
+	After       []string `json:"after,omitempty"` // IDs that must be done first
 	DueDate     string   `json:"due_date"`
 	DoneDate    string   `json:"done_date"`
 	Tags        []string `json:"tags"`
@@ -219,7 +221,9 @@ func readNote(notesDir string, path string) (*Note, error) {
 	for _, r := range raw {
 		t := Task{
 			NoteSlug:    slug,
+			ID:          r.ID,
 			Description: r.Description,
+			After:       r.After,
 			DueDate:     r.DueDate,
 			DoneDate:    r.DoneDate,
 			Done:        r.Done,
@@ -506,13 +510,57 @@ func matchStatus(t Task, status string) bool {
 	}
 }
 
+// IndexByID indexes the tasks that carry an ID. An ID on several tasks (two
+// clones picked the same one) keeps every task it names, so callers can flag it.
+func IndexByID(tasks []Task) map[string][]Task {
+	byID := make(map[string][]Task)
+	for _, t := range tasks {
+		if t.ID != "" {
+			byID[t.ID] = append(byID[t.ID], t)
+		}
+	}
+	return byID
+}
+
+// tasksByID indexes every task in notesDir by ID. A notes directory that does
+// not exist yet holds no tasks; addTask creates it.
+func tasksByID(notesDir string) (map[string][]Task, error) {
+	if _, err := os.Stat(notesDir); errors.Is(err, fs.ErrNotExist) {
+		return map[string][]Task{}, nil
+	}
+	tasks, err := allTasks(notesDir, "all", "")
+	if err != nil {
+		return nil, err
+	}
+	return IndexByID(tasks), nil
+}
+
+// OpenBlockers returns the open tasks in byID that t waits on. A blocker that
+// no longer exists does not block.
+func OpenBlockers(
+	t RawTask,
+	byID map[string][]Task,
+) []Task {
+	var open []Task
+	for _, id := range t.After {
+		for _, b := range byID[id] {
+			if !b.Done {
+				open = append(open, b)
+			}
+		}
+	}
+	return open
+}
+
 // markTaskDone marks done the open task in notePath that desc names: the
 // first whose description equals desc (case-insensitive), else the only one
 // containing it. When several contain it, the error lists their lines so the
-// caller can pick one with markTaskDoneAt.
+// caller can pick one with markTaskDoneAt. byID is nil to skip the blocker
+// check (force); see checkOff.
 func markTaskDone(
 	notePath string,
 	desc string,
+	byID map[string][]Task,
 ) error {
 	lower := strings.ToLower(strings.TrimSpace(desc))
 	if lower == "" {
@@ -546,7 +594,7 @@ func markTaskDone(
 	case 0:
 		return fmt.Errorf("no open task matching %q found in %s", desc, notePath)
 	case 1:
-		return checkOff(notePath, lines, candidates[0])
+		return checkOff(notePath, lines, candidates[0], byID)
 	}
 	nums := make([]string, len(candidates))
 	for i, idx := range candidates {
@@ -562,10 +610,11 @@ func markTaskDone(
 }
 
 // markTaskDoneAt marks done the open task on line (1-based, as Task.Line
-// reports it) of notePath.
+// reports it) of notePath. byID is nil to skip the blocker check (force).
 func markTaskDoneAt(
 	notePath string,
 	line int,
+	byID map[string][]Task,
 ) error {
 	lines, err := readLines(notePath)
 	if err != nil {
@@ -577,7 +626,7 @@ func markTaskDoneAt(
 	if tasks := ParseTasks(lines[line-1]); len(tasks) == 0 || tasks[0].Done {
 		return fmt.Errorf("line %d of %s is not an open task", line, notePath)
 	}
-	return checkOff(notePath, lines, line-1)
+	return checkOff(notePath, lines, line-1, byID)
 }
 
 // readLines reads notePath split into lines.
@@ -590,13 +639,26 @@ func readLines(notePath string) ([]string, error) {
 }
 
 // checkOff marks the task on lines[i] done today, keeping its indentation,
-// and writes the file back.
+// and writes the file back. Every way of closing a task ends here, so this is
+// where an open blocker in byID refuses the close; a nil byID skips the check.
 func checkOff(
 	notePath string,
 	lines []string,
 	i int,
+	byID map[string][]Task,
 ) error {
 	t := ParseTasks(lines[i])[0]
+	if open := OpenBlockers(t, byID); len(open) > 0 {
+		names := make([]string, len(open))
+		for j, b := range open {
+			names[j] = fmt.Sprintf("%s %q in %s", b.ID, b.Description, b.NoteSlug)
+		}
+		return fmt.Errorf(
+			"%q is blocked by %s; finish that first, or force it",
+			t.Description,
+			strings.Join(names, ", "),
+		)
+	}
 	t.Done = true
 	t.DoneDate = time.Now().Format("2006-01-02")
 	indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
@@ -608,42 +670,72 @@ func checkOff(
 // note (and any parent directories) when it does not exist. It refuses
 // anything that would not parse back to the same task: a multi-line or
 // piped description, an inline #tag in the description, a malformed tag or
-// date. Secure notes are refused because their body lives in kvlt.
+// date, a blocker in After that no task carries. A task without an ID gets a
+// new one; it returns the task as written. Secure notes are refused because
+// their body lives in kvlt.
 func addTask(
 	notesDir string,
 	slug string,
 	title string,
 	task RawTask,
-) error {
+) (RawTask, error) {
 	clean, notePath, err := slugPath(notesDir, slug)
 	if err != nil {
-		return err
+		return RawTask{}, err
 	}
 
 	task.Description = strings.TrimSpace(task.Description)
 	switch {
 	case task.Description == "":
-		return fmt.Errorf("task description is required")
+		return RawTask{}, fmt.Errorf("task description is required")
 	case strings.ContainsAny(task.Description, "|\r\n"):
-		return fmt.Errorf("task description must be one line without \"|\": %q", task.Description)
+		return RawTask{}, fmt.Errorf(
+			"task description must be one line without \"|\": %q",
+			task.Description,
+		)
 	case len(ParseLineTags(task.Description)) > 0:
-		return fmt.Errorf(
+		return RawTask{}, fmt.Errorf(
 			"task description contains a #tag; pass tags separately: %q",
 			task.Description,
 		)
 	}
 	for _, t := range task.Labels {
 		if !tagNameRe.MatchString(t) {
-			return fmt.Errorf("invalid tag %q", t)
+			return RawTask{}, fmt.Errorf("invalid tag %q", t)
 		}
 	}
 	for _, d := range []string{task.DueDate, task.DoneDate} {
 		if _, err := time.Parse("2006-01-02", d); d != "" && err != nil {
-			return fmt.Errorf("invalid date %q: want a real YYYY-MM-DD date", d)
+			return RawTask{}, fmt.Errorf("invalid date %q: want a real YYYY-MM-DD date", d)
 		}
 	}
 	if task.Done && task.DoneDate == "" {
 		task.DoneDate = time.Now().Format("2006-01-02")
+	}
+
+	byID, err := tasksByID(notesDir)
+	if err != nil {
+		return RawTask{}, err
+	}
+	after := make([]string, 0, len(task.After))
+	for _, id := range task.After {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if _, ok := byID[id]; !ok {
+			return RawTask{}, fmt.Errorf("no task with id %s to wait on", id)
+		}
+		after = append(after, id)
+	}
+	task.After = after
+	task.ID = strings.ToLower(strings.TrimSpace(task.ID))
+	if _, taken := byID[task.ID]; task.ID != "" && taken {
+		return RawTask{}, fmt.Errorf("task id %s is already in use", task.ID)
+	}
+	if task.ID == "" {
+		taken := make(map[string]struct{}, len(byID))
+		for id := range byID {
+			taken[id] = struct{}{}
+		}
+		task.ID = NewTaskID(taken)
 	}
 
 	content, err := os.ReadFile(notePath)
@@ -653,14 +745,17 @@ func addTask(
 			title = filepath.Base(clean)
 		}
 		if err := os.MkdirAll(filepath.Dir(notePath), 0o700); err != nil {
-			return fmt.Errorf("create dir for %q: %w", slug, err)
+			return RawTask{}, fmt.Errorf("create dir for %q: %w", slug, err)
 		}
 		content = []byte(ScaffoldFrontmatter(title, time.Now().Format("2006-01-02")))
 	case err != nil:
-		return fmt.Errorf("read note %q: %w", notePath, err)
+		return RawTask{}, fmt.Errorf("read note %q: %w", notePath, err)
 	default:
 		if fm, _ := ParseFrontmatter(string(content)); fm.Secure {
-			return fmt.Errorf("note %q is encrypted; decrypt it before adding tasks", slug)
+			return RawTask{}, fmt.Errorf(
+				"note %q is encrypted; decrypt it before adding tasks",
+				slug,
+			)
 		}
 	}
 
@@ -668,7 +763,10 @@ func addTask(
 	if text != "" && !strings.HasSuffix(text, "\n") {
 		text += "\n"
 	}
-	return os.WriteFile(notePath, []byte(text+FormatTask(task)+"\n"), 0o600)
+	if err := os.WriteFile(notePath, []byte(text+FormatTask(task)+"\n"), 0o600); err != nil {
+		return RawTask{}, err
+	}
+	return task, nil
 }
 
 // splitFrontmatter returns content's YAML front-matter block byte for byte,

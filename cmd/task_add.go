@@ -37,15 +37,17 @@ var (
 	taskAddDueFlag   string
 	taskAddDoneFlag  string
 	taskAddTagFlags  []string
+	taskAddAfterFlag []string
 )
 
 // taskAddCmd implements `jot task add --slug <slug> --desc <description>`.
 // Appends a checkbox task to the note, creating the note when it does not
-// exist yet; the service commits it.
+// exist yet, and gives it an ID; the service commits it.
 var taskAddCmd = &cobra.Command{
 	Use:   "add",
 	Short: "Add a task to a note, creating the note if needed",
 	Example: `  jot task add -s todo -D "call Sam" --due friday -t work
+  jot task add -s todo -D "ship it" --after t-7k2m
   jot task add -s done/2026-11-03 --title "Done 2026-11-03" -D "Merged !20" --done -t cos
   jot task add -s done/2026-11-02 -D "Opened !19" --done=2026-11-02 -t cos`,
 	Args: cobra.NoArgs,
@@ -62,13 +64,15 @@ var taskAddCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := svc.AddTask(taskAddSlugFlag, taskAddTitleFlag, task); err != nil { // commits too
+		task.After = taskAddAfterFlag
+		added, err := svc.AddTask(taskAddSlugFlag, taskAddTitleFlag, task) // commits too
+		if err != nil {
 			return err
 		}
 
 		cli.Print(out, cli.Success(
 			out,
-			fmt.Sprintf("task added: %s", cli.Accent(out, task.Description)),
+			fmt.Sprintf("task added: %s %s", added.ID, cli.Accent(out, added.Description)),
 		))
 		return nil
 	},
@@ -88,6 +92,8 @@ func init() {
 	taskAddCmd.Flags().Lookup("done").NoOptDefVal = "today"
 	taskAddCmd.Flags().
 		StringSliceVarP(&taskAddTagFlags, "tag", "t", nil, "tag, repeatable or comma-separated")
+	taskAddCmd.Flags().
+		StringSliceVar(&taskAddAfterFlag, "after", nil, "ID of a task that must be done first, repeatable or comma-separated")
 	_ = taskAddCmd.MarkFlagRequired("slug")
 	_ = taskAddCmd.MarkFlagRequired("desc")
 }
