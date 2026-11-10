@@ -85,17 +85,17 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_tasks",
-		Description: `List tasks filtered by status ("open", "done", or "all"), tag, and the date they were done. Each task carries its note_slug and file line.`,
+		Description: `List tasks filtered by status ("open", "done", or "all"), tag, and the date they were done. Each task carries its id, note_slug, file line, and the ids it waits on (after).`,
 	}, s.handleListTasks)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "task_add",
-		Description: "Append a checkbox task to a note, creating the note when it does not exist. Can add it already done.",
+		Description: "Append a checkbox task to a note, creating the note when it does not exist, and return the id it was given. Can add it already done, and can wait on other tasks by id (after).",
 	}, s.handleTaskAdd)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "task_done",
-		Description: "Mark a task complete (appends done:YYYY-MM-DD). Name it by line, as list_tasks reports, or by description.",
+		Description: "Mark a task complete (appends done:YYYY-MM-DD). Name it by id, or by line or description within a note. Refuses while a task it waits on is open, unless force is set.",
 	}, s.handleTaskDone)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -177,9 +177,11 @@ type listTasksArgs struct {
 }
 
 type taskDoneArgs struct {
-	Slug string `json:"slug"           jsonschema:"Note slug containing the task."`
-	Desc string `json:"desc,omitempty" jsonschema:"Task description: an exact match wins, else the only task containing it (case-insensitive)."`
-	Line int    `json:"line,omitempty" jsonschema:"The task's line in the note, as list_tasks reports it; takes precedence over desc."`
+	ID    string `json:"id,omitempty"    jsonschema:"The task's id, as list_tasks reports it; needs no slug and takes precedence over line and desc."`
+	Slug  string `json:"slug,omitempty"  jsonschema:"Note slug containing the task; required without an id."`
+	Desc  string `json:"desc,omitempty"  jsonschema:"Task description: an exact match wins, else the only task containing it (case-insensitive)."`
+	Line  int    `json:"line,omitempty"  jsonschema:"The task's line in the note, as list_tasks reports it; takes precedence over desc."`
+	Force bool   `json:"force,omitempty" jsonschema:"Close it even though a task it waits on (after) is still open."`
 }
 
 type taskAddArgs struct {
@@ -189,6 +191,7 @@ type taskAddArgs struct {
 	Due   string   `json:"due,omitempty"   jsonschema:"Due date: YYYY-MM-DD, today, tomorrow, a weekday name, or next week (optional)."`
 	Done  string   `json:"done,omitempty"  jsonschema:"Add the task already done, on this date (same forms as due); omit for an open task."`
 	Tags  []string `json:"tags,omitempty"  jsonschema:"Tags, without the leading # (optional)."`
+	After []string `json:"after,omitempty" jsonschema:"IDs of tasks that must be done before this one (optional); each must exist."`
 }
 
 type tasksDueArgs struct {
@@ -404,11 +407,17 @@ func (s *Server) handleTaskDone(
 	_ *mcpsdk.CallToolRequest,
 	args taskDoneArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
+	if args.ID != "" {
+		if err := s.store.MarkTaskDoneByID(args.ID, args.Force); err != nil {
+			return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
+		}
+		return textResult(fmt.Sprintf(`{"id": %q, "done": true}`, args.ID)), nil, nil
+	}
 	if args.Slug == "" {
 		return textResult("error: slug is required"), nil, nil
 	}
 	if args.Line > 0 {
-		if err := s.store.MarkTaskDoneAt(args.Slug, args.Line); err != nil {
+		if err := s.store.MarkTaskDoneAt(args.Slug, args.Line, args.Force); err != nil {
 			return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
 		}
 		return textResult(
@@ -419,7 +428,7 @@ func (s *Server) handleTaskDone(
 		return textResult("error: desc or line is required"), nil, nil
 	}
 
-	if err := s.store.MarkTaskDone(args.Slug, args.Desc); err != nil {
+	if err := s.store.MarkTaskDone(args.Slug, args.Desc, args.Force); err != nil {
 		return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
 	}
 
@@ -444,13 +453,16 @@ func (s *Server) handleTaskAdd(
 	if err != nil {
 		return textResult(fmt.Sprintf("error: add task: %v", err)), nil, nil
 	}
-	if err := s.store.AddTask(args.Slug, args.Title, task); err != nil {
+	task.After = args.After
+	added, err := s.store.AddTask(args.Slug, args.Title, task)
+	if err != nil {
 		return textResult(fmt.Sprintf("error: add task: %v", err)), nil, nil
 	}
 
 	return textResult(jsonOrErr(map[string]any{
 		"slug": args.Slug,
-		"line": jot.FormatTask(task),
+		"id":   added.ID,
+		"line": jot.FormatTask(added),
 	})), nil, nil
 }
 

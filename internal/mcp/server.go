@@ -55,9 +55,10 @@ type Store interface {
 	RenameNote(oldSlug string, newTitle string) (string, error)
 	AllTasks(status string, tagFilter string) ([]jot.Task, error)
 	TasksDue(from time.Time, to time.Time) ([]jot.Task, error)
-	MarkTaskDone(slug string, desc string) error
-	MarkTaskDoneAt(slug string, line int) error
-	AddTask(slug string, title string, task jot.RawTask) error
+	MarkTaskDone(slug string, desc string, force bool) error
+	MarkTaskDoneAt(slug string, line int, force bool) error
+	MarkTaskDoneByID(id string, force bool) error
+	AddTask(slug string, title string, task jot.RawTask) (jot.RawTask, error)
 	AppendNote(slug string, text string) error
 	UpdateNote(slug string, content string) error
 	AllTags() ([]string, error)
@@ -187,12 +188,14 @@ passphrase-free key in their jot.yaml ssh_keys list.
 
 ## Tasks
 
-Tasks are checkbox lines embedded in notes. They carry an optional due date
-and optional inline #tags. Each listed task has its note_slug and file line.
+Tasks are checkbox lines embedded in notes. They carry an id (t-xxxx), an
+optional due date, optional inline #tags, and optionally the ids of tasks
+that must be done first (after). Each listed task has its note_slug and file
+line. A task cannot be closed while a task it waits on is open, unless forced.
 
 - list_tasks    list tasks filtered by status (open/done/all), tag and done_since
-- task_add      append a task to a note, creating the note if needed
-- task_done     mark a task complete by line (from list_tasks) or description
+- task_add      append a task to a note, creating the note if needed; returns its id
+- task_done     mark a task complete by id, or by line (from list_tasks) or description
 - tasks_due     list open tasks due today, this_week, or this_month
 
 ## Tags

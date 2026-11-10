@@ -775,6 +775,28 @@ func TestSummarize(t *testing.T) {
 	}
 }
 
+// ─── IndexByID ───────────────────────────────────────────────────────────────
+
+func TestIndexByID(t *testing.T) {
+	t.Parallel()
+
+	tasks := []jot.Task{
+		{ID: "t-0001", Description: "write docs", NoteSlug: "a"},
+		{ID: "t-0002", Description: "ship it", NoteSlug: "a", After: []string{"t-0001", "t-gone"}},
+		{ID: "t-0002", Description: "clashing clone", NoteSlug: "b", Done: true},
+		{Description: "no id"},
+	}
+	byID := jot.IndexByID(tasks)
+
+	if len(byID) != 2 || len(byID["t-0001"]) != 1 || len(byID["t-0002"]) != 2 {
+		t.Fatalf("IndexByID = %v, want t-0001 once and t-0002 twice, nothing without an id", byID)
+	}
+	open := jot.OpenBlockers(jot.RawTask{After: tasks[1].After}, byID)
+	if len(open) != 1 || open[0].Description != "write docs" {
+		t.Errorf("OpenBlockers = %v, want only the open, existing blocker", open)
+	}
+}
+
 // ─── DoneSince ───────────────────────────────────────────────────────────────
 
 func TestDoneSince(t *testing.T) {

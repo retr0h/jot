@@ -45,24 +45,32 @@ type mockStore struct {
 	renameNoteFn   func(string, string) (string, error)
 	allTasksFn     func(string, string) ([]jot.Task, error)
 	tasksDueFn     func(time.Time, time.Time) ([]jot.Task, error)
-	markTaskDoneFn func(string, string) error
-	addTaskFn      func(string, string, jot.RawTask) error
-	markDoneAtFn   func(string, int) error
+	markTaskDoneFn func(string, string, bool) error
+	addTaskFn      func(string, string, jot.RawTask) (jot.RawTask, error)
+	markDoneAtFn   func(string, int, bool) error
+	markDoneByIDFn func(string, bool) error
 	appendNoteFn   func(string, string) error
 	updateNoteFn   func(string, string) error
 	allTagsFn      func() ([]string, error)
 }
 
-func (m *mockStore) AddTask(slug, title string, task jot.RawTask) error {
+func (m *mockStore) AddTask(slug, title string, task jot.RawTask) (jot.RawTask, error) {
 	if m.addTaskFn != nil {
 		return m.addTaskFn(slug, title, task)
+	}
+	return task, nil
+}
+
+func (m *mockStore) MarkTaskDoneAt(slug string, line int, force bool) error {
+	if m.markDoneAtFn != nil {
+		return m.markDoneAtFn(slug, line, force)
 	}
 	return nil
 }
 
-func (m *mockStore) MarkTaskDoneAt(slug string, line int) error {
-	if m.markDoneAtFn != nil {
-		return m.markDoneAtFn(slug, line)
+func (m *mockStore) MarkTaskDoneByID(id string, force bool) error {
+	if m.markDoneByIDFn != nil {
+		return m.markDoneByIDFn(id, force)
 	}
 	return nil
 }
@@ -174,9 +182,9 @@ func (m *mockStore) TasksDue(from, to time.Time) ([]jot.Task, error) {
 	return nil, nil
 }
 
-func (m *mockStore) MarkTaskDone(slug, desc string) error {
+func (m *mockStore) MarkTaskDone(slug, desc string, force bool) error {
 	if m.markTaskDoneFn != nil {
-		return m.markTaskDoneFn(slug, desc)
+		return m.markTaskDoneFn(slug, desc, force)
 	}
 	return nil
 }
@@ -954,13 +962,13 @@ func TestHandleTaskDone(t *testing.T) {
 		{
 			name: "a line takes precedence over desc",
 			store: &mockStore{
-				markDoneAtFn: func(slug string, line int) error {
+				markDoneAtFn: func(slug string, line int, _ bool) error {
 					if slug != "done/2026-11-03" || line != 7 {
 						return fmt.Errorf("unexpected %q %d", slug, line)
 					}
 					return nil
 				},
-				markTaskDoneFn: func(_, _ string) error { return fmt.Errorf("desc used") },
+				markTaskDoneFn: func(_, _ string, _ bool) error { return fmt.Errorf("desc used") },
 			},
 			args:    taskDoneArgs{Slug: "done/2026-11-03", Desc: "ignored", Line: 7},
 			wantSub: `"line": 7, "done": true`,
@@ -968,7 +976,7 @@ func TestHandleTaskDone(t *testing.T) {
 		{
 			name: "line store error returned as text",
 			store: &mockStore{
-				markDoneAtFn: func(_ string, _ int) error { return fmt.Errorf("not an open task") },
+				markDoneAtFn: func(_ string, _ int, _ bool) error { return fmt.Errorf("not an open task") },
 			},
 			args:    taskDoneArgs{Slug: "note", Line: 3},
 			wantSub: "error: mark task done: not an open task",
@@ -976,12 +984,49 @@ func TestHandleTaskDone(t *testing.T) {
 		{
 			name: "store error returned as text",
 			store: &mockStore{
-				markTaskDoneFn: func(_, _ string) error {
+				markTaskDoneFn: func(_, _ string, _ bool) error {
 					return fmt.Errorf("no matching task")
 				},
 			},
 			args:    taskDoneArgs{Slug: "note", Desc: "missing"},
 			wantSub: "error: mark task done",
+		},
+		{
+			name: "an id needs no slug and wins over desc",
+			store: &mockStore{
+				markDoneByIDFn: func(id string, force bool) error {
+					if id != "t-7k2m" || force {
+						return fmt.Errorf("unexpected %q %v", id, force)
+					}
+					return nil
+				},
+				markTaskDoneFn: func(_, _ string, _ bool) error { return fmt.Errorf("desc used") },
+			},
+			args:    taskDoneArgs{ID: "t-7k2m", Desc: "ignored"},
+			wantSub: `"id": "t-7k2m", "done": true`,
+		},
+		{
+			name: "force reaches the store",
+			store: &mockStore{
+				markTaskDoneFn: func(_, _ string, force bool) error {
+					if !force {
+						return fmt.Errorf("force dropped")
+					}
+					return nil
+				},
+			},
+			args:    taskDoneArgs{Slug: "note", Desc: "ship it", Force: true},
+			wantSub: `"done": true`,
+		},
+		{
+			name: "a blocked task's error returned as text",
+			store: &mockStore{
+				markDoneByIDFn: func(_ string, _ bool) error {
+					return fmt.Errorf(`"ship it" is blocked by t-0001`)
+				},
+			},
+			args:    taskDoneArgs{ID: "t-0002"},
+			wantSub: "error: mark task done: \"ship it\" is blocked by t-0001",
 		},
 	}
 
@@ -1032,12 +1077,17 @@ func TestHandleTaskAdd(t *testing.T) {
 		{
 			name: "adds a done task",
 			store: &mockStore{
-				addTaskFn: func(slug, title string, task jot.RawTask) error {
+				addTaskFn: func(slug, title string, task jot.RawTask) (jot.RawTask, error) {
 					if slug != "done/2026-11-03" || title != "Done" || !task.Done ||
 						task.DoneDate != "2026-11-02" || task.Labels[0] != "cos" {
-						return fmt.Errorf("unexpected args %q %q %+v", slug, title, task)
+						return jot.RawTask{}, fmt.Errorf(
+							"unexpected args %q %q %+v",
+							slug,
+							title,
+							task,
+						)
 					}
-					return nil
+					return task, nil
 				},
 			},
 			args: taskAddArgs{
@@ -1047,10 +1097,24 @@ func TestHandleTaskAdd(t *testing.T) {
 			wantSub: `"line": "- [x] Merged !20 | done:2026-11-02 #cos"`,
 		},
 		{
+			name: "returns the ID the store gave it, and passes blockers",
+			store: &mockStore{
+				addTaskFn: func(_, _ string, task jot.RawTask) (jot.RawTask, error) {
+					if len(task.After) != 1 || task.After[0] != "t-0001" {
+						return jot.RawTask{}, fmt.Errorf("blockers dropped: %v", task.After)
+					}
+					task.ID = "t-7k2m"
+					return task, nil
+				},
+			},
+			args:    taskAddArgs{Slug: "todo", Desc: "ship it", After: []string{"t-0001"}},
+			wantSub: `"id": "t-7k2m"`,
+		},
+		{
 			name: "store error returned as text",
 			store: &mockStore{
-				addTaskFn: func(_, _ string, _ jot.RawTask) error {
-					return fmt.Errorf("task description contains a #tag")
+				addTaskFn: func(_, _ string, _ jot.RawTask) (jot.RawTask, error) {
+					return jot.RawTask{}, fmt.Errorf("task description contains a #tag")
 				},
 			},
 			args:    taskAddArgs{Slug: "note", Desc: "in #eng"},
