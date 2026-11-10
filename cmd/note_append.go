@@ -35,17 +35,22 @@ var (
 	noteAppendTextFlag string
 )
 
-// noteAppendCmd implements `jot note append --slug <slug> --text <text>`,
+// noteAppendCmd implements `jot note append <path> --text <text>`,
 // reading the text from stdin when piped. Adds it to the end of an existing
 // note's body; the service commits it.
 var noteAppendCmd = &cobra.Command{
-	Use:   "append",
+	Use:   "append [path]",
 	Short: "Append text to the end of an existing note",
-	Example: `  jot note append -s memory/projects --text "jot is the shared agent store"
-  git log -1 --format=%s | jot note append -s worklog`,
-	Args: cobra.NoArgs,
-	RunE: func(c *cobra.Command, _ []string) error {
+	Example: `  jot note append /memory/projects --text "jot is the shared agent store"
+  git log -1 --format=%s | jot note append /worklog`,
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePaths,
+	RunE: func(c *cobra.Command, args []string) error {
 		out := c.OutOrStdout()
+		slug := noteArg(args, noteAppendSlugFlag)
+		if slug == "" {
+			return fmt.Errorf("name the note to append to: jot note append <path>")
+		}
 
 		text := noteAppendTextFlag
 		if text == "" && cli.IsPiped() {
@@ -55,11 +60,11 @@ var noteAppendCmd = &cobra.Command{
 			}
 			text = string(raw)
 		}
-		if err := svc.AppendNote(noteAppendSlugFlag, text); err != nil { // commits too
+		if err := svc.AppendNote(slug, text); err != nil { // commits too
 			return err
 		}
 
-		cli.Print(out, cli.Success(out, "appended to "+cli.Accent(out, noteAppendSlugFlag)))
+		cli.Print(out, cli.Success(out, "appended to "+cli.Accent(out, slug)))
 		return nil
 	},
 }
@@ -69,6 +74,5 @@ func init() {
 		StringVarP(&noteAppendSlugFlag, "slug", "s", "", "slug of the note to append to")
 	noteAppendCmd.Flags().
 		StringVar(&noteAppendTextFlag, "text", "", "text to append (read from stdin when piped and omitted)")
-	_ = noteAppendCmd.MarkFlagRequired("slug")
 	noteCmd.AddCommand(noteAppendCmd)
 }

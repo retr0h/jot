@@ -51,7 +51,7 @@ ssh_keys:
 Or via flags:
 
 ```bash
-jot note decrypt -s secret-stuff --ssh-key ~/.ssh/id_ed25519 --ssh-key ~/.ssh/id_work
+jot note decrypt /secret-stuff --ssh-key ~/.ssh/id_ed25519 --ssh-key ~/.ssh/id_work
 ```
 
 Passphrase-protected keys prompt via `/dev/tty`.

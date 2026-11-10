@@ -29,14 +29,15 @@ import (
 var noteCatSlugFlag string
 
 var noteCatCmd = &cobra.Command{
-	Use:   "cat",
-	Short: "Print a note's content to stdout",
-	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, _ []string) error {
+	Use:               "cat [path]",
+	Short:             "Print a note's content to stdout",
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePaths,
+	RunE: func(c *cobra.Command, args []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
 
-		slug := noteCatSlugFlag
+		slug := noteArg(args, noteCatSlugFlag)
 		if slug == "" {
 			picked, err := pickNote(notesDir)
 			if err != nil {

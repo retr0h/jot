@@ -22,14 +22,11 @@ package jot_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/retr0h/jot/internal/jot"
 )
 
-func TestNewSlug(t *testing.T) {
-	date := time.Date(2026, 5, 14, 0, 0, 0, 0, time.UTC)
-
+func TestSlugify(t *testing.T) {
 	tests := []struct {
 		name  string
 		title string
@@ -38,30 +35,39 @@ func TestNewSlug(t *testing.T) {
 		{
 			name:  "simple lowercase title",
 			title: "Standup",
-			want:  "2026-05-14-standup",
+			want:  "standup",
 		},
 		{
 			name:  "multiple words with spaces",
 			title: "Meshx PR Review",
-			want:  "2026-05-14-meshx-pr-review",
+			want:  "meshx-pr-review",
 		},
 		{
 			name:  "special characters and version number",
 			title: "Ideas & Notes: v2.0",
-			want:  "2026-05-14-ideas-notes-v2-0",
+			want:  "ideas-notes-v2-0",
 		},
 		{
 			name:  "leading and trailing spaces with internal runs",
 			title: "  lots   of   spaces  ",
-			want:  "2026-05-14-lots-of-spaces",
+			want:  "lots-of-spaces",
+		},
+		{
+			name:  "empty title",
+			title: "",
+			want:  "",
+		},
+		{
+			name:  "no letters or digits",
+			title: "!!! ???",
+			want:  "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := jot.NewSlug(tt.title, date)
-			if got != tt.want {
-				t.Errorf("NewSlug(%q) = %q, want %q", tt.title, got, tt.want)
+			if got := jot.Slugify(tt.title); got != tt.want {
+				t.Errorf("Slugify(%q) = %q, want %q", tt.title, got, tt.want)
 			}
 		})
 	}

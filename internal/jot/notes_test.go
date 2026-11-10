@@ -24,6 +24,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -378,7 +379,7 @@ created: 2026-05-14
 			dir := setupDir(t)
 			svc := newSvc(dir)
 
-			got, err := svc.AllTasks(tt.status, "")
+			got, err := svc.AllTasks(tt.status, "", "")
 			if err != nil {
 				t.Fatalf("AllTasks: %v", err)
 			}
@@ -394,7 +395,8 @@ created: 2026-05-14
 func TestListNotes(t *testing.T) {
 	t.Parallel()
 
-	// Build a shared dir with two notes: one tagged "work", one tagged "personal".
+	// Build a shared dir: two notes at the root, tagged "work" and "personal",
+	// and a small folder tree under work/.
 	setupDir := func(t *testing.T) string {
 		t.Helper()
 		dir := t.TempDir()
@@ -412,28 +414,92 @@ created: 2026-05-14
 ---
 # Personal Note
 `)
+		if err := os.MkdirAll(filepath.Join(dir, "work", "infra"), 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		writeNote(t, dir, "work/sensor-ideas", "---\ntags: [work]\n---\n# Sensor\n")
+		writeNote(t, dir, "work/infra/deploy", "# Deploy\n")
 		return dir
 	}
 
 	tests := []struct {
 		name      string
 		tagFilter string
-		wantCount int
+		dir       string
+		want      []string // slugs, sorted
+		wantErr   bool
 	}{
 		{
-			name:      "no filter returns all notes",
-			tagFilter: "",
-			wantCount: 2,
+			name: "no filter returns all notes",
+			want: []string{"personal-note", "work-note", "work/infra/deploy", "work/sensor-ideas"},
 		},
 		{
 			name:      "tag filter matches subset",
 			tagFilter: "work",
-			wantCount: 1,
+			want:      []string{"work-note", "work/sensor-ideas"},
 		},
 		{
 			name:      "tag filter with no matches returns empty",
 			tagFilter: "nonexistent",
-			wantCount: 0,
+		},
+		{
+			name: "root lists every note",
+			dir:  "/",
+			want: []string{"personal-note", "work-note", "work/infra/deploy", "work/sensor-ideas"},
+		},
+		{
+			name: "a folder lists every note under it",
+			dir:  "/work",
+			want: []string{"work/infra/deploy", "work/sensor-ideas"},
+		},
+		{
+			name: "a folder without the leading slash, with a trailing one",
+			dir:  "work/infra/",
+			want: []string{"work/infra/deploy"},
+		},
+		{
+			name: "a note names just itself",
+			dir:  "/work/sensor-ideas",
+			want: []string{"work/sensor-ideas"},
+		},
+		{
+			name: "a folder name does not match a note sharing its prefix",
+			dir:  "/work-",
+		},
+		{
+			name: "a glob stays within one folder",
+			dir:  "/work/*",
+			want: []string{"work/infra/deploy", "work/sensor-ideas"},
+		},
+		{
+			name: "a glob on names",
+			dir:  "/*-note",
+			want: []string{"personal-note", "work-note"},
+		},
+		{
+			name: "a glob matching a folder lists under it",
+			dir:  "/wo?k",
+			want: []string{"work/infra/deploy", "work/sensor-ideas"},
+		},
+		{
+			name:      "path and tag filters combine",
+			tagFilter: "work",
+			dir:       "/work",
+			want:      []string{"work/sensor-ideas"},
+		},
+		{
+			name: "dot-dot cannot climb above the root",
+			dir:  "/../work/infra",
+			want: []string{"work/infra/deploy"},
+		},
+		{
+			name: "no such folder returns empty",
+			dir:  "/nope",
+		},
+		{
+			name:    "a malformed glob returns error",
+			dir:     "/work/[",
+			wantErr: true,
 		},
 	}
 
@@ -443,12 +509,142 @@ created: 2026-05-14
 			dir := setupDir(t)
 			svc := newSvc(dir)
 
-			got, err := svc.ListNotes(tt.tagFilter)
+			got, err := svc.ListNotes(tt.tagFilter, tt.dir)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("ListNotes: expected error, got nil")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("ListNotes: unexpected error: %v", err)
 			}
-			if len(got) != tt.wantCount {
-				t.Errorf("count = %d, want %d", len(got), tt.wantCount)
+			slugs := make([]string, 0, len(got))
+			for _, n := range got {
+				slugs = append(slugs, n.Slug)
+			}
+			slices.Sort(slugs)
+			if !slices.Equal(slugs, tt.want) {
+				t.Errorf("slugs = %v, want %v", slugs, tt.want)
+			}
+		})
+	}
+}
+
+// ─── DirEntries ──────────────────────────────────────────────────────────────
+
+func TestDirEntries(t *testing.T) {
+	t.Parallel()
+
+	slugs := []string{
+		"personal",
+		"work",
+		"done/2026-11-09",
+		"done/2026-11-10",
+		"work/sensor-ideas",
+		"work/infra/deploy",
+		"work/infra/k8s/rbac",
+	}
+	notes := make([]*jot.Note, 0, len(slugs))
+	for _, s := range slugs {
+		notes = append(notes, &jot.Note{Slug: s})
+	}
+
+	// render writes an entry as "dir/ N" or the note's slug.
+	render := func(entries []jot.Entry) []string {
+		got := make([]string, 0, len(entries))
+		for _, e := range entries {
+			if e.Note != nil {
+				got = append(got, e.Note.Slug)
+				continue
+			}
+			got = append(got, fmt.Sprintf("%s/ %d", e.Dir, e.Count))
+		}
+		return got
+	}
+
+	tests := []struct {
+		name    string
+		notes   []*jot.Note
+		dir     string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name:  "the root lists its folders, sorted with counts, then its notes",
+			notes: notes,
+			want:  []string{"done/ 2", "work/ 3", "personal", "work"},
+		},
+		{
+			name:  "slash is the root",
+			notes: notes,
+			dir:   "/",
+			want:  []string{"done/ 2", "work/ 3", "personal", "work"},
+		},
+		{
+			name:  "a folder lists one level down, beside a note of the same name",
+			notes: notes,
+			dir:   "/work",
+			want:  []string{"work/infra/ 2", "work", "work/sensor-ideas"},
+		},
+		{
+			name:  "a nested folder, without the leading slash, with a trailing one",
+			notes: notes,
+			dir:   "work/infra/",
+			want:  []string{"work/infra/k8s/ 1", "work/infra/deploy"},
+		},
+		{
+			name:  "a note lists just itself",
+			notes: notes,
+			dir:   "/work/sensor-ideas",
+			want:  []string{"work/sensor-ideas"},
+		},
+		{
+			name:  "a glob lists matching notes and what matching folders hold",
+			notes: notes,
+			dir:   "/work/*",
+			want:  []string{"work/infra/k8s/ 1", "work/sensor-ideas", "work/infra/deploy"},
+		},
+		{
+			name:  "a glob at the root",
+			notes: notes,
+			dir:   "/d*",
+			want:  []string{"done/2026-11-09", "done/2026-11-10"},
+		},
+		{
+			name:  "no such folder lists nothing",
+			notes: notes,
+			dir:   "/nope",
+			want:  []string{},
+		},
+		{
+			name: "no notes lists nothing",
+			want: []string{},
+		},
+		{
+			name:    "a malformed glob returns error",
+			notes:   notes,
+			dir:     "/work/[",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			entries, err := jot.DirEntries(tt.notes, tt.dir)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("DirEntries: expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DirEntries: unexpected error: %v", err)
+			}
+			if got := render(entries); !slices.Equal(got, tt.want) {
+				t.Errorf("DirEntries(%q) = %v, want %v", tt.dir, got, tt.want)
 			}
 		})
 	}
@@ -486,6 +682,7 @@ Random thoughts about coffee.
 	tests := []struct {
 		name      string
 		query     string
+		dir       string
 		wantCount int
 	}{
 		{
@@ -513,6 +710,18 @@ Random thoughts about coffee.
 			query:     "",
 			wantCount: 2,
 		},
+		{
+			name:      "a path narrows the search",
+			query:     "deployment",
+			dir:       "/beta",
+			wantCount: 0,
+		},
+		{
+			name:      "a glob path keeps its matches",
+			query:     "deployment",
+			dir:       "/al*",
+			wantCount: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -521,7 +730,7 @@ Random thoughts about coffee.
 			dir := setupDir(t)
 			svc := newSvc(dir)
 
-			got, err := svc.SearchNotes(tt.query)
+			got, err := svc.SearchNotes(tt.query, tt.dir)
 			if err != nil {
 				t.Fatalf("SearchNotes: unexpected error: %v", err)
 			}
@@ -651,7 +860,10 @@ func TestCleanSlug(t *testing.T) {
 		{name: "empty", slug: "", wantErr: true},
 		{name: "blank", slug: "   ", wantErr: true},
 		{name: "current dir", slug: ".", wantErr: true},
-		{name: "absolute path", slug: "/etc/passwd", wantErr: true},
+		{name: "leading slash is the notes root", slug: "/work/ideas", want: "work/ideas"},
+		{name: "repeated leading slashes", slug: "//etc/passwd", want: "etc/passwd"},
+		{name: "root alone", slug: "/", wantErr: true},
+		{name: "leading slash escaping the notes dir", slug: "/../x", wantErr: true},
 		{name: "parent dir", slug: "..", wantErr: true},
 		{name: "escapes the notes dir", slug: "ops/../../x", wantErr: true},
 	}
@@ -863,6 +1075,7 @@ func TestAllTasks(t *testing.T) {
 		name      string
 		status    string
 		tagFilter string
+		dir       string
 		wantCount int
 		setup     func(t *testing.T) string
 	}{
@@ -895,7 +1108,21 @@ func TestAllTasks(t *testing.T) {
 			setup:     setupDir,
 		},
 		{
-			name:      "empty dir returns no tasks",
+			name:      "a path keeps the tasks of the notes under it",
+			status:    "all",
+			dir:       "/test-note",
+			wantCount: 3,
+			setup:     setupDir,
+		},
+		{
+			name:      "a path with no notes under it returns no tasks",
+			status:    "all",
+			dir:       "/other",
+			wantCount: 0,
+			setup:     setupDir,
+		},
+		{
+			name:      "empty notes dir returns no tasks",
 			status:    "all",
 			tagFilter: "",
 			wantCount: 0,
@@ -911,7 +1138,7 @@ func TestAllTasks(t *testing.T) {
 			dir := tt.setup(t)
 			svc := newSvc(dir)
 
-			got, err := svc.AllTasks(tt.status, tt.tagFilter)
+			got, err := svc.AllTasks(tt.status, tt.tagFilter, tt.dir)
 			if err != nil {
 				t.Fatalf("AllTasks: unexpected error: %v", err)
 			}

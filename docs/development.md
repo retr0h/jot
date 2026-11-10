@@ -66,8 +66,11 @@ after the description and `#tag` annotations at the end:
 
 ```
 - [ ] fix the broken deploy script | due:friday #ops
-- [x] fix the broken deploy script | due:2026-05-16 | done:2026-05-17 #ops
+- [x] fix the broken deploy script | due:2026-05-16 | done:2026-05-17 | reason:rewrote it #ops
 ```
+
+Closing a task always records why, as `reason:` after `done:`; jot refuses to
+close one without it.
 
 The parser reads any `- [ ]` or `- [x]` line, and `FormatTask` writes the same
 form back, so a task edited in nvim and a task written by jot look alike.
@@ -149,8 +152,10 @@ Every function's table MUST include rows covering:
 
 1. Create `cmd/<parent>_<name>.go` (e.g. `note_edit.go`).
 2. Define a `*cobra.Command` with `Args: cobra.NoArgs` — use flags for all
-   inputs, never positional args. Mark required flags with
-   `cobra.MarkFlagRequired`.
+   inputs. The one positional argument is a note path: a command that acts on a
+   note or a folder takes it as `[path]` (`cobra.MaximumNArgs(1)`,
+   `ValidArgsFunction: completePaths`), so it reads like `ls` or `cat`. Mark
+   required flags with `cobra.MarkFlagRequired`.
 3. Register in `init()` via the parent subcommand.
 4. Declare a narrow interface for the operations the command needs.
 5. Pair with `cmd/<parent>_<name>_test.go` with table-driven tests.
@@ -199,11 +204,11 @@ Steps before promoting to production. See also [[pre-deploy-checklist]].
 
 ## Task Syntax
 
-| Form      | Example                                                       |
-| --------- | ------------------------------------------------------------- |
-| Open      | `- [ ] description #tag`                                      |
-| With due  | `- [ ] description \| due:YYYY-MM-DD #tag`                    |
-| With done | `- [x] description \| due:2026-05-14 \| done:2026-05-15 #tag` |
+| Form      | Example                                                                     |
+| --------- | --------------------------------------------------------------------------- |
+| Open      | `- [ ] description #tag`                                                    |
+| With due  | `- [ ] description \| due:YYYY-MM-DD #tag`                                  |
+| With done | `- [x] description \| due:2026-05-14 \| done:2026-05-15 \| reason:why #tag` |
 
 Natural language dates accepted by `due:`: `today`, `tomorrow`,
 `monday`...`sunday`, `next week`, `YYYY-MM-DD`.

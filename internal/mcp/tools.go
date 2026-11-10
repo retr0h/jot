@@ -35,7 +35,7 @@ import (
 func (s *Server) registerTools() {
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_notes",
-		Description: "List notes as summaries (slug, title, description, tags, dates, open tasks), optionally filtered by tag. Pass full for bodies.",
+		Description: "List notes as summaries (slug, title, description, tags, dates, open tasks), optionally filtered by tag and by path: a folder such as /work, a note, or a glob such as /work/*-ideas. Pass full for bodies.",
 	}, s.handleListNotes)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -45,7 +45,7 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "create_note",
-		Description: "Create a new markdown note with YAML front-matter scaffold; a dir/Title title creates it in that folder, and undated drops today's date from the slug. Refuses to overwrite. Supports secure (encrypted) creation.",
+		Description: "Create a new markdown note with YAML front-matter scaffold; a dir/Title title creates it in that folder, named from the title alone. Refuses to overwrite. Supports secure (encrypted) creation.",
 	}, s.handleCreateNote)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -65,7 +65,7 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "search_notes",
-		Description: "Case-insensitive substring search across note titles and bodies. Returns summaries with the first matching line; pass full for bodies.",
+		Description: "Case-insensitive substring search across note titles and bodies. path narrows it to a folder, note, or glob, as in list_notes. Returns summaries with the first matching line; pass full for bodies.",
 	}, s.handleSearchNotes)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -85,7 +85,7 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "list_tasks",
-		Description: `List tasks filtered by status ("open", "done", or "all"), tag, and the date they were done. Each task carries its id, note_slug, file line, and the ids it waits on (after).`,
+		Description: `List tasks filtered by status ("open", "done", or "all"), tag, path (a folder, note, or glob, as in list_notes), and the date they were done. Each task carries its id, note_slug, file line, and the ids it waits on (after).`,
 	}, s.handleListTasks)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -95,7 +95,7 @@ func (s *Server) registerTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "task_done",
-		Description: "Mark a task complete (appends done:YYYY-MM-DD). Name it by id, or by line or description within a note. Refuses while a task it waits on is open, unless force is set.",
+		Description: "Mark a task complete with a required reason (appends done:YYYY-MM-DD | reason:...). Name it by id, or by line or description within a note. Refuses while a task it waits on is open, unless force is set.",
 	}, s.handleTaskDone)
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
@@ -118,6 +118,7 @@ func (s *Server) registerTools() {
 
 type listNotesArgs struct {
 	Tag  string `json:"tag,omitempty"  jsonschema:"Filter to notes carrying this tag (optional)."`
+	Path string `json:"path,omitempty" jsonschema:"Only notes at or under this path: a folder such as /work, a note, or a glob such as /work/*-ideas whose * stays in one folder (optional)."`
 	Full bool   `json:"full,omitempty" jsonschema:"Return whole notes with bodies, tasks and links instead of summaries."`
 }
 
@@ -126,10 +127,9 @@ type getNoteArgs struct {
 }
 
 type createNoteArgs struct {
-	Title   string `json:"title"             jsonschema:"Note title (used to derive the slug)."`
-	Content string `json:"content"           jsonschema:"Markdown content of the note (optional; scaffold used when empty)."`
-	Secure  bool   `json:"secure,omitempty"  jsonschema:"When true, encrypt the note body via kvlt (requires passphrase-free SSH keys)."`
-	Undated bool   `json:"undated,omitempty" jsonschema:"When true, name the slug from the title alone, without today's date, for long-lived notes such as memory/Topic."`
+	Title   string `json:"title"            jsonschema:"Note title (used to derive the slug)."`
+	Content string `json:"content"          jsonschema:"Markdown content of the note (optional; scaffold used when empty)."`
+	Secure  bool   `json:"secure,omitempty" jsonschema:"When true, encrypt the note body via kvlt (requires passphrase-free SSH keys)."`
 }
 
 type deleteNoteArgs struct {
@@ -138,6 +138,7 @@ type deleteNoteArgs struct {
 
 type searchNotesArgs struct {
 	Query string `json:"query"          jsonschema:"Case-insensitive substring to search for."`
+	Path  string `json:"path,omitempty" jsonschema:"Only notes at or under this path or glob, as in list_notes (optional)."`
 	Full  bool   `json:"full,omitempty" jsonschema:"Return whole notes with bodies instead of summaries."`
 }
 
@@ -174,14 +175,16 @@ type listTasksArgs struct {
 	Status    string `json:"status,omitempty"     jsonschema:"Task status filter: open, done, or all (default all)."`
 	Tag       string `json:"tag,omitempty"        jsonschema:"Filter to tasks carrying this tag (optional)."`
 	DoneSince string `json:"done_since,omitempty" jsonschema:"Only tasks done on or after this date, YYYY-MM-DD (optional; implies done)."`
+	Path      string `json:"path,omitempty"       jsonschema:"Only tasks in notes at or under this path or glob, as in list_notes (optional)."`
 }
 
 type taskDoneArgs struct {
-	ID    string `json:"id,omitempty"    jsonschema:"The task's id, as list_tasks reports it; needs no slug and takes precedence over line and desc."`
-	Slug  string `json:"slug,omitempty"  jsonschema:"Note slug containing the task; required without an id."`
-	Desc  string `json:"desc,omitempty"  jsonschema:"Task description: an exact match wins, else the only task containing it (case-insensitive)."`
-	Line  int    `json:"line,omitempty"  jsonschema:"The task's line in the note, as list_tasks reports it; takes precedence over desc."`
-	Force bool   `json:"force,omitempty" jsonschema:"Close it even though a task it waits on (after) is still open."`
+	ID     string `json:"id,omitempty"    jsonschema:"The task's id, as list_tasks reports it; needs no slug and takes precedence over line and desc."`
+	Slug   string `json:"slug,omitempty"  jsonschema:"Note slug containing the task; required without an id."`
+	Desc   string `json:"desc,omitempty"  jsonschema:"Task description: an exact match wins, else the only task containing it (case-insensitive)."`
+	Reason string `json:"reason"          jsonschema:"Why the task is closed: one line, without | or #tags. Required."`
+	Line   int    `json:"line,omitempty"  jsonschema:"The task's line in the note, as list_tasks reports it; takes precedence over desc."`
+	Force  bool   `json:"force,omitempty" jsonschema:"Close it even though a task it waits on (after) is still open."`
 }
 
 type taskAddArgs struct {
@@ -207,7 +210,7 @@ func (s *Server) handleListNotes(
 	_ *mcpsdk.CallToolRequest,
 	args listNotesArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
-	notes, err := s.store.ListNotes(args.Tag)
+	notes, err := s.store.ListNotes(args.Tag, args.Path)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
@@ -256,7 +259,7 @@ func (s *Server) handleCreateNote(
 		return textResult("error: title is required"), nil, nil
 	}
 
-	slug, notePath, err := s.store.CreateNote(args.Title, args.Content, args.Secure, args.Undated)
+	slug, notePath, err := s.store.CreateNote(args.Title, args.Content, args.Secure)
 	if err != nil {
 		return textResult(fmt.Sprintf("error: create note: %v", err)), nil, nil
 	}
@@ -318,7 +321,7 @@ func (s *Server) handleSearchNotes(
 	if args.Query == "" {
 		return textResult("error: query is required"), nil, nil
 	}
-	results, err := s.store.SearchNotes(args.Query)
+	results, err := s.store.SearchNotes(args.Query, args.Path)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
@@ -392,7 +395,7 @@ func (s *Server) handleListTasks(
 		}
 		status = "done"
 	}
-	tasks, err := s.store.AllTasks(status, args.Tag)
+	tasks, err := s.store.AllTasks(status, args.Tag, args.Path)
 	if err != nil {
 		return textResult("error: " + err.Error()), nil, nil
 	}
@@ -408,7 +411,7 @@ func (s *Server) handleTaskDone(
 	args taskDoneArgs,
 ) (*mcpsdk.CallToolResult, any, error) {
 	if args.ID != "" {
-		if err := s.store.MarkTaskDoneByID(args.ID, args.Force); err != nil {
+		if err := s.store.MarkTaskDoneByID(args.ID, args.Reason, args.Force); err != nil {
 			return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
 		}
 		return textResult(fmt.Sprintf(`{"id": %q, "done": true}`, args.ID)), nil, nil
@@ -417,7 +420,7 @@ func (s *Server) handleTaskDone(
 		return textResult("error: slug is required"), nil, nil
 	}
 	if args.Line > 0 {
-		if err := s.store.MarkTaskDoneAt(args.Slug, args.Line, args.Force); err != nil {
+		if err := s.store.MarkTaskDoneAt(args.Slug, args.Line, args.Reason, args.Force); err != nil {
 			return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
 		}
 		return textResult(
@@ -428,7 +431,7 @@ func (s *Server) handleTaskDone(
 		return textResult("error: desc or line is required"), nil, nil
 	}
 
-	if err := s.store.MarkTaskDone(args.Slug, args.Desc, args.Force); err != nil {
+	if err := s.store.MarkTaskDone(args.Slug, args.Desc, args.Reason, args.Force); err != nil {
 		return textResult(fmt.Sprintf("error: mark task done: %v", err)), nil, nil
 	}
 

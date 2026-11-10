@@ -41,6 +41,7 @@ func TestParseTasks(t *testing.T) {
 		wantDue    string
 		wantDone   bool
 		wantDoneAt string
+		wantReason string
 		wantLabels []string
 	}{
 		{
@@ -72,6 +73,16 @@ func TestParseTasks(t *testing.T) {
 			wantDue:    "2026-05-16",
 			wantDone:   true,
 			wantDoneAt: "2026-05-17",
+			wantLabels: []string{"work"},
+		},
+		{
+			name:       "done task with a reason",
+			content:    "- [x] reviewed PR | done:2026-05-17 | reason: merged after review #work",
+			wantCount:  1,
+			wantDesc:   "reviewed PR",
+			wantDone:   true,
+			wantDoneAt: "2026-05-17",
+			wantReason: "merged after review",
 			wantLabels: []string{"work"},
 		},
 		{
@@ -134,6 +145,9 @@ func TestParseTasks(t *testing.T) {
 			}
 			if tt.wantDoneAt != "" && task.DoneDate != tt.wantDoneAt {
 				t.Errorf("DoneDate = %q, want %q", task.DoneDate, tt.wantDoneAt)
+			}
+			if task.Reason != tt.wantReason {
+				t.Errorf("Reason = %q, want %q", task.Reason, tt.wantReason)
 			}
 			if tt.wantLabels != nil {
 				if len(task.Labels) != len(tt.wantLabels) {
@@ -288,6 +302,18 @@ func TestFormatTask(t *testing.T) {
 				DoneDate:    "2026-05-17",
 			},
 			want: "- [x] ship it | id:t-7k2m | done:2026-05-17",
+		},
+		{
+			name: "done with a reason after the done date",
+			task: jot.RawTask{
+				Description: "ship it",
+				ID:          "t-7k2m",
+				Done:        true,
+				DoneDate:    "2026-05-17",
+				Reason:      "merged in #58",
+				Labels:      []string{"work"},
+			},
+			want: "- [x] ship it | id:t-7k2m | done:2026-05-17 | reason:merged in #58 #work",
 		},
 	}
 
