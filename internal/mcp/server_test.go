@@ -34,21 +34,21 @@ import (
 
 // mockStore implements the Store interface for testing MCP handlers.
 type mockStore struct {
-	listNotesFn    func(string) ([]*jot.Note, error)
-	searchNotesFn  func(string) ([]*jot.Note, error)
+	listNotesFn    func(string, string) ([]*jot.Note, error)
+	searchNotesFn  func(string, string) ([]*jot.Note, error)
 	findNoteBySlug func(string) (*jot.Note, error)
 	catNoteFn      func(string) (string, error)
-	createNoteFn   func(string, string, bool, bool) (string, string, error)
+	createNoteFn   func(string, string, bool) (string, string, error)
 	deleteNoteFn   func(string) error
 	encryptNoteFn  func(string) error
 	decryptNoteFn  func(string) error
 	renameNoteFn   func(string, string) (string, error)
-	allTasksFn     func(string, string) ([]jot.Task, error)
+	allTasksFn     func(string, string, string) ([]jot.Task, error)
 	tasksDueFn     func(time.Time, time.Time) ([]jot.Task, error)
-	markTaskDoneFn func(string, string, bool) error
+	markTaskDoneFn func(string, string, string, bool) error
 	addTaskFn      func(string, string, jot.RawTask) (jot.RawTask, error)
-	markDoneAtFn   func(string, int, bool) error
-	markDoneByIDFn func(string, bool) error
+	markDoneAtFn   func(string, int, string, bool) error
+	markDoneByIDFn func(string, string, bool) error
 	appendNoteFn   func(string, string) error
 	updateNoteFn   func(string, string) error
 	allTagsFn      func() ([]string, error)
@@ -61,16 +61,16 @@ func (m *mockStore) AddTask(slug, title string, task jot.RawTask) (jot.RawTask, 
 	return task, nil
 }
 
-func (m *mockStore) MarkTaskDoneAt(slug string, line int, force bool) error {
+func (m *mockStore) MarkTaskDoneAt(slug string, line int, reason string, force bool) error {
 	if m.markDoneAtFn != nil {
-		return m.markDoneAtFn(slug, line, force)
+		return m.markDoneAtFn(slug, line, reason, force)
 	}
 	return nil
 }
 
-func (m *mockStore) MarkTaskDoneByID(id string, force bool) error {
+func (m *mockStore) MarkTaskDoneByID(id, reason string, force bool) error {
 	if m.markDoneByIDFn != nil {
-		return m.markDoneByIDFn(id, force)
+		return m.markDoneByIDFn(id, reason, force)
 	}
 	return nil
 }
@@ -102,16 +102,16 @@ func (m *mockHistory) Log(filename string, limit int) ([]gitops.LogEntry, error)
 	return m.entries, m.err
 }
 
-func (m *mockStore) ListNotes(tag string) ([]*jot.Note, error) {
+func (m *mockStore) ListNotes(tag, dir string) ([]*jot.Note, error) {
 	if m.listNotesFn != nil {
-		return m.listNotesFn(tag)
+		return m.listNotesFn(tag, dir)
 	}
 	return nil, nil
 }
 
-func (m *mockStore) SearchNotes(q string) ([]*jot.Note, error) {
+func (m *mockStore) SearchNotes(q, dir string) ([]*jot.Note, error) {
 	if m.searchNotesFn != nil {
-		return m.searchNotesFn(q)
+		return m.searchNotesFn(q, dir)
 	}
 	return nil, nil
 }
@@ -132,10 +132,10 @@ func (m *mockStore) CatNote(slug string) (string, error) {
 
 func (m *mockStore) CreateNote(
 	title, content string,
-	secure, undated bool,
+	secure bool,
 ) (string, string, error) {
 	if m.createNoteFn != nil {
-		return m.createNoteFn(title, content, secure, undated)
+		return m.createNoteFn(title, content, secure)
 	}
 	return "slug", "/path/slug.md", nil
 }
@@ -168,9 +168,9 @@ func (m *mockStore) RenameNote(oldSlug, newTitle string) (string, error) {
 	return "new-slug", nil
 }
 
-func (m *mockStore) AllTasks(status, tag string) ([]jot.Task, error) {
+func (m *mockStore) AllTasks(status, tag, dir string) ([]jot.Task, error) {
 	if m.allTasksFn != nil {
-		return m.allTasksFn(status, tag)
+		return m.allTasksFn(status, tag, dir)
 	}
 	return nil, nil
 }
@@ -182,9 +182,9 @@ func (m *mockStore) TasksDue(from, to time.Time) ([]jot.Task, error) {
 	return nil, nil
 }
 
-func (m *mockStore) MarkTaskDone(slug, desc string, force bool) error {
+func (m *mockStore) MarkTaskDone(slug, desc, reason string, force bool) error {
 	if m.markTaskDoneFn != nil {
-		return m.markTaskDoneFn(slug, desc, force)
+		return m.markTaskDoneFn(slug, desc, reason, force)
 	}
 	return nil
 }
@@ -353,7 +353,7 @@ func newTestServer(store *mockStore) *Server {
 func TestHandleListNotes(t *testing.T) {
 	t.Parallel()
 
-	withBody := func(_ string) ([]*jot.Note, error) {
+	withBody := func(_, _ string) ([]*jot.Note, error) {
 		return []*jot.Note{{Slug: "my-note", Title: "My Note", Body: "the whole body"}}, nil
 	}
 
@@ -378,22 +378,22 @@ func TestHandleListNotes(t *testing.T) {
 			wantSub: `"body": "the whole body"`,
 		},
 		{
-			name: "passes tag filter",
+			name: "passes tag and path filters",
 			store: &mockStore{
-				listNotesFn: func(tag string) ([]*jot.Note, error) {
-					if tag != "work" {
-						return nil, fmt.Errorf("unexpected tag %q", tag)
+				listNotesFn: func(tag, dir string) ([]*jot.Note, error) {
+					if tag != "work" || dir != "/work/*" {
+						return nil, fmt.Errorf("unexpected tag %q dir %q", tag, dir)
 					}
 					return []*jot.Note{{Slug: "work-note"}}, nil
 				},
 			},
-			args:    listNotesArgs{Tag: "work"},
+			args:    listNotesArgs{Tag: "work", Path: "/work/*"},
 			wantSub: `"work-note"`,
 		},
 		{
 			name: "store error returned as text",
 			store: &mockStore{
-				listNotesFn: func(_ string) ([]*jot.Note, error) {
+				listNotesFn: func(_, _ string) ([]*jot.Note, error) {
 					return nil, fmt.Errorf("disk full")
 				},
 			},
@@ -494,7 +494,7 @@ func TestHandleCreateNote(t *testing.T) {
 		{
 			name: "creates note and returns slug and path",
 			store: &mockStore{
-				createNoteFn: func(_, _ string, _, _ bool) (string, string, error) {
+				createNoteFn: func(_, _ string, _ bool) (string, string, error) {
 					return "2026-05-17-my-note", "/notes/2026-05-17-my-note.md", nil
 				},
 			},
@@ -504,7 +504,7 @@ func TestHandleCreateNote(t *testing.T) {
 		{
 			name: "secure flag is reflected",
 			store: &mockStore{
-				createNoteFn: func(_, _ string, secure, _ bool) (string, string, error) {
+				createNoteFn: func(_, _ string, secure bool) (string, string, error) {
 					if !secure {
 						return "", "", fmt.Errorf("expected secure=true")
 					}
@@ -515,22 +515,9 @@ func TestHandleCreateNote(t *testing.T) {
 			wantSub: `"secure": true`,
 		},
 		{
-			name: "undated is passed to the store",
-			store: &mockStore{
-				createNoteFn: func(_, _ string, _, undated bool) (string, string, error) {
-					if !undated {
-						return "", "", fmt.Errorf("expected undated=true")
-					}
-					return "memory/jot", "/notes/memory/jot.md", nil
-				},
-			},
-			args:    createNoteArgs{Title: "memory/Jot", Undated: true},
-			wantSub: `"slug": "memory/jot"`,
-		},
-		{
 			name: "store error returned as text",
 			store: &mockStore{
-				createNoteFn: func(_, _ string, _, _ bool) (string, string, error) {
+				createNoteFn: func(_, _ string, _ bool) (string, string, error) {
 					return "", "", fmt.Errorf("permission denied")
 				},
 			},
@@ -624,7 +611,7 @@ func TestHandleSearchNotes(t *testing.T) {
 		{
 			name: "returns summaries with the matching line",
 			store: &mockStore{
-				searchNotesFn: func(_ string) ([]*jot.Note, error) {
+				searchNotesFn: func(_, _ string) ([]*jot.Note, error) {
 					return []*jot.Note{{Slug: "result", Body: "intro\na test line\n"}}, nil
 				},
 			},
@@ -634,7 +621,7 @@ func TestHandleSearchNotes(t *testing.T) {
 		{
 			name: "full returns whole notes",
 			store: &mockStore{
-				searchNotesFn: func(_ string) ([]*jot.Note, error) {
+				searchNotesFn: func(_, _ string) ([]*jot.Note, error) {
 					return []*jot.Note{{Slug: "result", Body: "intro\na test line\n"}}, nil
 				},
 			},
@@ -642,9 +629,22 @@ func TestHandleSearchNotes(t *testing.T) {
 			wantSub: `"body": "intro\na test line\n"`,
 		},
 		{
+			name: "path reaches the store",
+			store: &mockStore{
+				searchNotesFn: func(q, dir string) ([]*jot.Note, error) {
+					if q != "test" || dir != "/work" {
+						return nil, fmt.Errorf("unexpected %q %q", q, dir)
+					}
+					return []*jot.Note{{Slug: "work/result"}}, nil
+				},
+			},
+			args:    searchNotesArgs{Query: "test", Path: "/work"},
+			wantSub: `"work/result"`,
+		},
+		{
 			name: "store error returned as text",
 			store: &mockStore{
-				searchNotesFn: func(_ string) ([]*jot.Note, error) {
+				searchNotesFn: func(_, _ string) ([]*jot.Note, error) {
 					return nil, fmt.Errorf("walk failed")
 				},
 			},
@@ -842,7 +842,7 @@ func TestHandleListTasks(t *testing.T) {
 		{
 			name: "returns tasks as JSON",
 			store: &mockStore{
-				allTasksFn: func(status, _ string) ([]jot.Task, error) {
+				allTasksFn: func(status, _, _ string) ([]jot.Task, error) {
 					if status != "all" {
 						return nil, fmt.Errorf("expected status=all, got %q", status)
 					}
@@ -855,7 +855,7 @@ func TestHandleListTasks(t *testing.T) {
 		{
 			name: "defaults empty status to all",
 			store: &mockStore{
-				allTasksFn: func(status, _ string) ([]jot.Task, error) {
+				allTasksFn: func(status, _, _ string) ([]jot.Task, error) {
 					if status != "all" {
 						return nil, fmt.Errorf("expected all, got %q", status)
 					}
@@ -868,20 +868,25 @@ func TestHandleListTasks(t *testing.T) {
 		{
 			name: "passes status and tag",
 			store: &mockStore{
-				allTasksFn: func(status, tagFilter string) ([]jot.Task, error) {
-					if status != "open" || tagFilter != "work" {
-						return nil, fmt.Errorf("unexpected: status=%q tag=%q", status, tagFilter)
+				allTasksFn: func(status, tagFilter, dir string) ([]jot.Task, error) {
+					if dir != "/work" || status != "open" || tagFilter != "work" {
+						return nil, fmt.Errorf(
+							"unexpected: status=%q tag=%q dir=%q",
+							status,
+							tagFilter,
+							dir,
+						)
 					}
 					return []jot.Task{{Description: "task"}}, nil
 				},
 			},
-			args:    listTasksArgs{Status: "open", Tag: "work"},
+			args:    listTasksArgs{Status: "open", Tag: "work", Path: "/work"},
 			wantSub: `"task"`,
 		},
 		{
 			name: "store error returned as text",
 			store: &mockStore{
-				allTasksFn: func(_, _ string) ([]jot.Task, error) {
+				allTasksFn: func(_, _, _ string) ([]jot.Task, error) {
 					return nil, fmt.Errorf("broken")
 				},
 			},
@@ -891,7 +896,7 @@ func TestHandleListTasks(t *testing.T) {
 		{
 			name: "done_since asks for done tasks and keeps those on or after the date",
 			store: &mockStore{
-				allTasksFn: func(status, _ string) ([]jot.Task, error) {
+				allTasksFn: func(status, _, _ string) ([]jot.Task, error) {
 					if status != "done" {
 						return nil, fmt.Errorf("expected done, got %q", status)
 					}
@@ -962,21 +967,26 @@ func TestHandleTaskDone(t *testing.T) {
 		{
 			name: "a line takes precedence over desc",
 			store: &mockStore{
-				markDoneAtFn: func(slug string, line int, _ bool) error {
-					if slug != "done/2026-11-03" || line != 7 {
-						return fmt.Errorf("unexpected %q %d", slug, line)
+				markDoneAtFn: func(slug string, line int, reason string, _ bool) error {
+					if slug != "done/2026-11-03" || line != 7 || reason != "shipped" {
+						return fmt.Errorf("unexpected %q %d %q", slug, line, reason)
 					}
 					return nil
 				},
-				markTaskDoneFn: func(_, _ string, _ bool) error { return fmt.Errorf("desc used") },
+				markTaskDoneFn: func(_, _, _ string, _ bool) error { return fmt.Errorf("desc used") },
 			},
-			args:    taskDoneArgs{Slug: "done/2026-11-03", Desc: "ignored", Line: 7},
+			args: taskDoneArgs{
+				Slug:   "done/2026-11-03",
+				Desc:   "ignored",
+				Line:   7,
+				Reason: "shipped",
+			},
 			wantSub: `"line": 7, "done": true`,
 		},
 		{
 			name: "line store error returned as text",
 			store: &mockStore{
-				markDoneAtFn: func(_ string, _ int, _ bool) error { return fmt.Errorf("not an open task") },
+				markDoneAtFn: func(_ string, _ int, _ string, _ bool) error { return fmt.Errorf("not an open task") },
 			},
 			args:    taskDoneArgs{Slug: "note", Line: 3},
 			wantSub: "error: mark task done: not an open task",
@@ -984,7 +994,7 @@ func TestHandleTaskDone(t *testing.T) {
 		{
 			name: "store error returned as text",
 			store: &mockStore{
-				markTaskDoneFn: func(_, _ string, _ bool) error {
+				markTaskDoneFn: func(_, _, _ string, _ bool) error {
 					return fmt.Errorf("no matching task")
 				},
 			},
@@ -994,34 +1004,34 @@ func TestHandleTaskDone(t *testing.T) {
 		{
 			name: "an id needs no slug and wins over desc",
 			store: &mockStore{
-				markDoneByIDFn: func(id string, force bool) error {
-					if id != "t-7k2m" || force {
-						return fmt.Errorf("unexpected %q %v", id, force)
+				markDoneByIDFn: func(id, reason string, force bool) error {
+					if id != "t-7k2m" || reason != "shipped" || force {
+						return fmt.Errorf("unexpected %q %q %v", id, reason, force)
 					}
 					return nil
 				},
-				markTaskDoneFn: func(_, _ string, _ bool) error { return fmt.Errorf("desc used") },
+				markTaskDoneFn: func(_, _, _ string, _ bool) error { return fmt.Errorf("desc used") },
 			},
-			args:    taskDoneArgs{ID: "t-7k2m", Desc: "ignored"},
+			args:    taskDoneArgs{ID: "t-7k2m", Desc: "ignored", Reason: "shipped"},
 			wantSub: `"id": "t-7k2m", "done": true`,
 		},
 		{
-			name: "force reaches the store",
+			name: "reason and force reach the store",
 			store: &mockStore{
-				markTaskDoneFn: func(_, _ string, force bool) error {
-					if !force {
-						return fmt.Errorf("force dropped")
+				markTaskDoneFn: func(_, _, reason string, force bool) error {
+					if !force || reason != "shipped" {
+						return fmt.Errorf("force or reason dropped")
 					}
 					return nil
 				},
 			},
-			args:    taskDoneArgs{Slug: "note", Desc: "ship it", Force: true},
+			args:    taskDoneArgs{Slug: "note", Desc: "ship it", Reason: "shipped", Force: true},
 			wantSub: `"done": true`,
 		},
 		{
 			name: "a blocked task's error returned as text",
 			store: &mockStore{
-				markDoneByIDFn: func(_ string, _ bool) error {
+				markDoneByIDFn: func(_, _ string, _ bool) error {
 					return fmt.Errorf(`"ship it" is blocked by t-0001`)
 				},
 			},

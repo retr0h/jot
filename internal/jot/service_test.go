@@ -230,7 +230,7 @@ func TestDecryptNote(t *testing.T) {
 		{
 			name: "a note created secure in a folder gets a blank line before its body",
 			setup: func(t *testing.T, svc *jot.Service) string {
-				slug, _, err := svc.CreateNote("ops/Vault", "Top secret.", true, false)
+				slug, _, err := svc.CreateNote("ops/Vault", "Top secret.", true)
 				if err != nil {
 					t.Fatalf("setup create: %v", err)
 				}
@@ -593,7 +593,6 @@ func TestCreateNote(t *testing.T) {
 		title       string
 		content     string
 		secure      bool
-		undated     bool
 		dir         func(t *testing.T) string
 		before      func(t *testing.T, svc *jot.Service)
 		wantSlugSub string
@@ -608,18 +607,16 @@ func TestCreateNote(t *testing.T) {
 			wantBodySub: "title: \"Runbook\"",
 		},
 		{
-			name:        "undated names the slug from the title alone",
+			name:        "names the slug from the title alone, without a date",
 			title:       "memory/Jot",
-			undated:     true,
 			wantSlugSub: "memory/jot",
 			wantBodySub: defaults,
 		},
 		{
-			name:    "an existing undated note is not overwritten",
-			title:   "memory/Jot",
-			undated: true,
+			name:  "an existing note in a folder is not overwritten",
+			title: "memory/Jot",
 			before: func(t *testing.T, svc *jot.Service) {
-				if _, _, err := svc.CreateNote("memory/Jot", "first", false, true); err != nil {
+				if _, _, err := svc.CreateNote("memory/Jot", "first", false); err != nil {
 					t.Fatalf("setup create: %v", err)
 				}
 			},
@@ -678,7 +675,7 @@ func TestCreateNote(t *testing.T) {
 			name:  "an existing note is not overwritten",
 			title: "Twice",
 			before: func(t *testing.T, svc *jot.Service) {
-				if _, _, err := svc.CreateNote("Twice", "first", false, false); err != nil {
+				if _, _, err := svc.CreateNote("Twice", "first", false); err != nil {
 					t.Fatalf("setup create: %v", err)
 				}
 			},
@@ -740,7 +737,7 @@ func TestCreateNote(t *testing.T) {
 				tt.before(t, svc)
 			}
 
-			slug, path, err := svc.CreateNote(tt.title, tt.content, tt.secure, tt.undated)
+			slug, path, err := svc.CreateNote(tt.title, tt.content, tt.secure)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("CreateNote: expected error, got nil")
@@ -836,8 +833,6 @@ func TestDeleteNote(t *testing.T) {
 func TestRenameNote(t *testing.T) {
 	t.Parallel()
 
-	today := time.Now().Format("2006-01-02")
-
 	tests := []struct {
 		name       string
 		oldSlug    string
@@ -849,7 +844,7 @@ func TestRenameNote(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name:     "an undated note stays undated",
+			name:     "a note is renamed from the new title alone",
 			oldSlug:  "memory/jot",
 			newTitle: "Agents",
 			setup: func(t *testing.T, dir string) {
@@ -865,13 +860,17 @@ func TestRenameNote(t *testing.T) {
 			},
 		},
 		{
-			name:     "a dated note gets today's date",
+			name:     "a dated note loses its date",
 			oldSlug:  "2026-01-02-standup",
 			newTitle: "Retro",
 			setup: func(t *testing.T, dir string) {
 				writeNote(t, dir, "2026-01-02-standup", "---\ntitle: \"Standup\"\ntags: []\n---\n")
 			},
-			wantNewSub: today + "-retro",
+			check: func(t *testing.T, _ *jot.Service, newSlug string) {
+				if newSlug != "retro" {
+					t.Errorf("newSlug = %q, want %q", newSlug, "retro")
+				}
+			},
 		},
 		{
 			name:     "a title with no letters or digits returns error",
@@ -1073,49 +1072,106 @@ func TestMarkTaskDone(t *testing.T) {
 		name    string
 		slug    string
 		desc    string
+		reason  string
 		setup   func(t *testing.T, dir string)
 		want    []string // substrings of the note after marking
 		wantErr bool
 	}{
 		{
-			name: "marks matching task done",
-			slug: "tasks-note",
-			desc: "Review PR",
+			name:   "marks matching task done",
+			slug:   "tasks-note",
+			desc:   "Review PR",
+			reason: "shipped",
 			setup: func(t *testing.T, dir string) {
 				writeNote(t, dir, "tasks-note", testNote)
 			},
 		},
 		{
-			name: "an exact match wins over a longer one",
-			slug: "deploys",
-			desc: "deploy",
+			name:   "an exact match wins over a longer one",
+			slug:   "deploys",
+			desc:   "deploy",
+			reason: "shipped",
 			setup: func(t *testing.T, dir string) {
 				writeNote(t, dir, "deploys", "- [ ] Deploy staging\n- [ ] Deploy\n")
 			},
 			want: []string{"- [ ] Deploy staging\n", "- [x] Deploy | done:"},
 		},
 		{
-			name: "keeps a nested task's indentation",
-			slug: "nested",
-			desc: "child",
+			name:   "keeps a nested task's indentation",
+			slug:   "nested",
+			desc:   "child",
+			reason: "shipped",
 			setup: func(t *testing.T, dir string) {
 				writeNote(t, dir, "nested", "- [ ] parent\n  - [ ] child step\n")
 			},
 			want: []string{"\n  - [x] child step | done:"},
 		},
 		{
-			name: "several partial matches return error",
-			slug: "deploys",
-			desc: "Deploy",
+			name:   "records the reason after the done date",
+			slug:   "deploys",
+			desc:   "Deploy",
+			reason: " superseded by the new pipeline ",
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "deploys", "- [ ] Deploy | id:t-0001 #ops\n")
+			},
+			want: []string{"- [x] Deploy | id:t-0001 | done:" + time.Now().Format("2006-01-02") +
+				" | reason:superseded by the new pipeline #ops\n"},
+		},
+		{
+			name:   "a missing reason returns error",
+			slug:   "deploys",
+			desc:   "Deploy",
+			reason: "  ",
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "deploys", "- [ ] Deploy\n")
+			},
+			wantErr: true,
+		},
+		{
+			name:   "a reason with a pipe returns error",
+			slug:   "deploys",
+			desc:   "Deploy",
+			reason: "done | due:friday",
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "deploys", "- [ ] Deploy\n")
+			},
+			wantErr: true,
+		},
+		{
+			name:   "a multi-line reason returns error",
+			slug:   "deploys",
+			desc:   "Deploy",
+			reason: "done\n- [ ] sneaky",
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "deploys", "- [ ] Deploy\n")
+			},
+			wantErr: true,
+		},
+		{
+			name:   "a reason with a #tag returns error",
+			slug:   "deploys",
+			desc:   "Deploy",
+			reason: "moved to #ops",
+			setup: func(t *testing.T, dir string) {
+				writeNote(t, dir, "deploys", "- [ ] Deploy\n")
+			},
+			wantErr: true,
+		},
+		{
+			name:   "several partial matches return error",
+			slug:   "deploys",
+			desc:   "Deploy",
+			reason: "shipped",
 			setup: func(t *testing.T, dir string) {
 				writeNote(t, dir, "deploys", "- [ ] Deploy staging\n- [ ] Deploy prod\n")
 			},
 			wantErr: true,
 		},
 		{
-			name: "two exact matches return error",
-			slug: "deploys",
-			desc: "Deploy",
+			name:   "two exact matches return error",
+			slug:   "deploys",
+			desc:   "Deploy",
+			reason: "shipped",
 			setup: func(t *testing.T, dir string) {
 				writeNote(t, dir, "deploys", "- [ ] Deploy\n- [ ] Deploy\n")
 			},
@@ -1125,6 +1181,7 @@ func TestMarkTaskDone(t *testing.T) {
 			name:    "empty description returns error",
 			slug:    "tasks-note",
 			desc:    "  ",
+			reason:  "shipped",
 			setup:   func(_ *testing.T, _ string) {},
 			wantErr: true,
 		},
@@ -1132,21 +1189,24 @@ func TestMarkTaskDone(t *testing.T) {
 			name:    "slug escaping the notes dir returns error",
 			slug:    "../outside",
 			desc:    "anything",
+			reason:  "shipped",
 			setup:   func(_ *testing.T, _ string) {},
 			wantErr: true,
 		},
 		{
-			name: "case insensitive match",
-			slug: "tasks-note",
-			desc: "review pr",
+			name:   "case insensitive match",
+			slug:   "tasks-note",
+			desc:   "review pr",
+			reason: "shipped",
 			setup: func(t *testing.T, dir string) {
 				writeNote(t, dir, "tasks-note", testNote)
 			},
 		},
 		{
-			name: "no matching task returns error",
-			slug: "tasks-note",
-			desc: "nonexistent task",
+			name:   "no matching task returns error",
+			slug:   "tasks-note",
+			desc:   "nonexistent task",
+			reason: "shipped",
 			setup: func(t *testing.T, dir string) {
 				writeNote(t, dir, "tasks-note", testNote)
 			},
@@ -1156,6 +1216,7 @@ func TestMarkTaskDone(t *testing.T) {
 			name:    "missing note returns error",
 			slug:    "no-such-note",
 			desc:    "anything",
+			reason:  "shipped",
 			setup:   func(_ *testing.T, _ string) {},
 			wantErr: true,
 		},
@@ -1168,7 +1229,7 @@ func TestMarkTaskDone(t *testing.T) {
 			tt.setup(t, dir)
 			svc := newSvc(dir)
 
-			err := svc.MarkTaskDone(tt.slug, tt.desc, false)
+			err := svc.MarkTaskDone(tt.slug, tt.desc, tt.reason, false)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("MarkTaskDone: expected error, got nil")
@@ -1239,7 +1300,7 @@ func TestMarkTaskDoneAt(t *testing.T) {
 			writeNote(t, dir, "tasks-note", testNote)
 			svc := newSvc(dir)
 
-			err := svc.MarkTaskDoneAt(tt.slug, tt.line, false)
+			err := svc.MarkTaskDoneAt(tt.slug, tt.line, "shipped", false)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("MarkTaskDoneAt: expected error, got nil")
@@ -1450,7 +1511,7 @@ func TestAddTask(t *testing.T) {
 			}
 
 			// Round trip: the parser reads back exactly the task written.
-			tasks, err := svc.AllTasks("all", "")
+			tasks, err := svc.AllTasks("all", "", "")
 			if err != nil {
 				t.Fatalf("AllTasks: %v", err)
 			}
@@ -1578,17 +1639,17 @@ func TestMarkTaskDoneBlocked(t *testing.T) {
 	}{
 		{
 			name:    "by ID, refuses while a blocker is open",
-			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("T-0002", false) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("T-0002", "shipped", false) },
 			wantErr: `blocked by t-0001 "write docs"`,
 		},
 		{
 			name:    "by description, refuses while a blocker is open",
-			op:      func(svc *jot.Service) error { return svc.MarkTaskDone("todo", "ship it", false) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDone("todo", "ship it", "shipped", false) },
 			wantErr: "blocked by t-0001",
 		},
 		{
 			name:    "by line, refuses while a blocker is open",
-			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneAt("todo", 7, false) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneAt("todo", 7, "shipped", false) },
 			wantErr: "blocked by t-0001",
 		},
 		{
@@ -1596,29 +1657,29 @@ func TestMarkTaskDoneBlocked(t *testing.T) {
 			setup: func(t *testing.T, svc *jot.Service) {
 				writeNote(t, svc.NotesDir, "work", "- [ ] deploy | id:t-0004 | after:t-0001\n")
 			},
-			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0004", false) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0004", "shipped", false) },
 			wantErr: "blocked by t-0001",
 		},
 		{
 			name: "force closes a blocked task",
-			op:   func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0002", true) },
+			op:   func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0002", "shipped", true) },
 		},
 		{
 			name: "closing the blocker unblocks it",
 			setup: func(t *testing.T, svc *jot.Service) {
-				if err := svc.MarkTaskDoneByID("t-0001", false); err != nil {
+				if err := svc.MarkTaskDoneByID("t-0001", "shipped", false); err != nil {
 					t.Fatalf("setup: %v", err)
 				}
 			},
-			op: func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0002", false) },
+			op: func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0002", "shipped", false) },
 		},
 		{
 			name: "a blocker that no longer exists does not block",
-			op:   func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0003", false) },
+			op:   func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0003", "shipped", false) },
 		},
 		{
 			name:    "an unknown ID",
-			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-zzzz", false) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-zzzz", "shipped", false) },
 			wantErr: "no task with id t-zzzz",
 		},
 		{
@@ -1626,39 +1687,39 @@ func TestMarkTaskDoneBlocked(t *testing.T) {
 			setup: func(t *testing.T, svc *jot.Service) {
 				writeNote(t, svc.NotesDir, "clone", "- [ ] clash | id:t-0001\n")
 			},
-			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0001", false) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0001", "shipped", false) },
 			wantErr: "id t-0001 is on 2 tasks",
 		},
 		{
 			name: "force skips the check, by description",
-			op:   func(svc *jot.Service) error { return svc.MarkTaskDone("todo", "ship it", true) },
+			op:   func(svc *jot.Service) error { return svc.MarkTaskDone("todo", "ship it", "shipped", true) },
 		},
 		{
 			name:    "an unreadable note fails the check, by description",
 			setup:   func(t *testing.T, svc *jot.Service) { lockedNote(t, svc.NotesDir, "locked", 0o000) },
-			op:      func(svc *jot.Service) error { return svc.MarkTaskDone("todo", "write docs", false) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDone("todo", "write docs", "shipped", false) },
 			wantErr: "permission denied",
 		},
 		{
 			name:    "an unreadable note fails the check, by line",
 			setup:   func(t *testing.T, svc *jot.Service) { lockedNote(t, svc.NotesDir, "locked", 0o000) },
-			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneAt("todo", 6, false) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneAt("todo", 6, "shipped", false) },
 			wantErr: "permission denied",
 		},
 		{
 			name:    "an unreadable note fails the check, by ID",
 			setup:   func(t *testing.T, svc *jot.Service) { lockedNote(t, svc.NotesDir, "locked", 0o000) },
-			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0001", false) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0001", "shipped", false) },
 			wantErr: "permission denied",
 		},
 		{
 			name: "a task already done",
 			setup: func(t *testing.T, svc *jot.Service) {
-				if err := svc.MarkTaskDoneByID("t-0001", false); err != nil {
+				if err := svc.MarkTaskDoneByID("t-0001", "shipped", false); err != nil {
 					t.Fatalf("setup: %v", err)
 				}
 			},
-			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0001", false) },
+			op:      func(svc *jot.Service) error { return svc.MarkTaskDoneByID("t-0001", "shipped", false) },
 			wantErr: "already done",
 		},
 	}
@@ -1846,7 +1907,6 @@ func TestServiceCommitter(t *testing.T) {
 	t.Parallel()
 
 	const mem = "---\ntitle: \"Mem\"\ntags: []\n---\n\n- [ ] ship it\n"
-	today := time.Now().Format("2006-01-02") // new slugs carry the date
 
 	tests := []struct {
 		name      string
@@ -1867,6 +1927,11 @@ func TestServiceCommitter(t *testing.T) {
 			want: []string{"note: update mem"},
 		},
 		{
+			name: "a leading slash commits the canonical slug",
+			op:   func(svc *jot.Service) error { return svc.AppendNote("/mem", "more") },
+			want: []string{"note: append to mem"},
+		},
+		{
 			name: "rename",
 			op: func(svc *jot.Service) error {
 				_, err := svc.RenameNote("mem", "Memory")
@@ -1876,12 +1941,12 @@ func TestServiceCommitter(t *testing.T) {
 		},
 		{
 			name: "task done",
-			op:   func(svc *jot.Service) error { return svc.MarkTaskDone("mem", "ship it", false) },
+			op:   func(svc *jot.Service) error { return svc.MarkTaskDone("mem", "ship it", "shipped", false) },
 			want: []string{`task: done "ship it" in mem`},
 		},
 		{
 			name: "task done by line",
-			op:   func(svc *jot.Service) error { return svc.MarkTaskDoneAt("mem", 6, false) },
+			op:   func(svc *jot.Service) error { return svc.MarkTaskDoneAt("mem", 6, "shipped", false) },
 			want: []string{"task: done line 6 in mem"},
 		},
 		{
@@ -1895,19 +1960,19 @@ func TestServiceCommitter(t *testing.T) {
 		{
 			name: "create",
 			op: func(svc *jot.Service) error {
-				_, _, err := svc.CreateNote("ops/Fresh", "", false, false)
+				_, _, err := svc.CreateNote("ops/Fresh", "", false)
 				return err
 			},
-			want: []string{"note: add ops/" + today + "-fresh"},
+			want: []string{"note: add ops/fresh"},
 		},
 		{
 			name: "create secure",
 			op: func(svc *jot.Service) error {
-				_, _, err := svc.CreateNote("Vault", "secret", true, false)
+				_, _, err := svc.CreateNote("Vault", "secret", true)
 				return err
 			},
 			secure: true,
-			want:   []string{"note(secure): add " + today + "-vault"},
+			want:   []string{"note(secure): add vault"},
 		},
 		{
 			name:   "decrypt",
@@ -1990,7 +2055,7 @@ func TestServiceCommitter_concurrent(t *testing.T) {
 	errs := make(chan error, writers)
 	for i := range writers {
 		wg.Go(func() {
-			_, _, err := svc.CreateNote(fmt.Sprintf("Note %d", i), "", false, false)
+			_, _, err := svc.CreateNote(fmt.Sprintf("Note %d", i), "", false)
 			errs <- err
 		})
 	}

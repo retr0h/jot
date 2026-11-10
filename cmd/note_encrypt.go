@@ -29,14 +29,15 @@ import (
 var noteEncryptSlugFlag string
 
 var noteEncryptCmd = &cobra.Command{
-	Use:   "encrypt",
-	Short: "Encrypt an existing note via kvlt",
-	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, _ []string) error {
+	Use:               "encrypt [path]",
+	Short:             "Encrypt an existing note via kvlt",
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePaths,
+	RunE: func(c *cobra.Command, args []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
 
-		slug := noteEncryptSlugFlag
+		slug := noteArg(args, noteEncryptSlugFlag)
 		if slug == "" {
 			picked, err := pickNote(notesDir)
 			if err != nil {

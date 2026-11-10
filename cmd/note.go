@@ -22,6 +22,7 @@ package cmd
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -44,8 +45,44 @@ func init() {
 	rootCmd.AddCommand(noteCmd)
 }
 
+// noteArg returns the note path given as the command's argument, else the
+// --slug flag's value.
+func noteArg(args []string, flag string) string {
+	if len(args) > 0 {
+		return args[0]
+	}
+	return flag
+}
+
+// completePaths tab-completes a command's one path argument from the notes
+// root rather than the filesystem's: every folder ("/work/") and note
+// ("/work/sensor-ideas").
+func completePaths(
+	_ *cobra.Command,
+	args []string,
+	_ string,
+) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	notes, err := svc.ListNotes("", "")
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
+	}
+	seen := make(map[string]bool)
+	paths := make([]string, 0, len(notes))
+	for _, n := range notes {
+		paths = append(paths, "/"+n.Slug)
+		for d := path.Dir(n.Slug); d != "." && !seen[d]; d = path.Dir(d) {
+			seen[d] = true
+			paths = append(paths, "/"+d+"/")
+		}
+	}
+	return paths, cobra.ShellCompDirectiveNoFileComp
+}
+
 func pickNote(_ string) (string, error) {
-	notes, err := svc.ListNotes("")
+	notes, err := svc.ListNotes("", "")
 	if err != nil {
 		return "", fmt.Errorf("list notes: %w", err)
 	}

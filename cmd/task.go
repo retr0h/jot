@@ -51,7 +51,7 @@ func init() {
 }
 
 func pickTask(_ string) (string, string, error) {
-	tasks, err := svc.AllTasks("open", "")
+	tasks, err := svc.AllTasks("open", "", "")
 	if err != nil {
 		return "", "", fmt.Errorf("list tasks: %w", err)
 	}

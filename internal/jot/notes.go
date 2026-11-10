@@ -28,6 +28,7 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -87,16 +88,19 @@ type Task struct {
 	DueDate     string   `json:"due_date"`
 	DoneDate    string   `json:"done_date"`
 	Tags        []string `json:"tags"`
+	Reason      string   `json:"reason,omitempty"` // why it was closed
 	Done        bool     `json:"done"`
 	Line        int      `json:"line"` // 1-based line in the note file
 }
 
 // CleanSlug validates a note slug from user or agent input and returns it in
 // canonical form: forward slashes, no ".md" suffix, inside the notes dir.
-// Slugs may name a subdirectory, such as "done/2026-11-03".
+// Slugs may name a subdirectory, such as "done/2026-11-03". A leading "/"
+// is the notes dir itself, so "/work/ideas" and "work/ideas" are one note.
 func CleanSlug(slug string) (string, error) {
-	clean := filepath.ToSlash(filepath.Clean(strings.TrimSuffix(slug, ".md")))
-	if strings.TrimSpace(slug) == "" || filepath.IsAbs(slug) || clean == "." || clean == ".." ||
+	rel := strings.TrimLeft(slug, "/")
+	clean := filepath.ToSlash(filepath.Clean(strings.TrimSuffix(rel, ".md")))
+	if strings.TrimSpace(rel) == "" || filepath.IsAbs(rel) || clean == "." || clean == ".." ||
 		strings.HasPrefix(clean, "../") {
 		return "", fmt.Errorf("invalid note slug %q", slug)
 	}
@@ -226,6 +230,7 @@ func readNote(notesDir string, path string) (*Note, error) {
 			After:       r.After,
 			DueDate:     r.DueDate,
 			DoneDate:    r.DoneDate,
+			Reason:      r.Reason,
 			Done:        r.Done,
 			Line:        r.Line + offset,
 		}
@@ -303,11 +308,105 @@ func readAllNotes(notesDir string) ([]*Note, error) {
 	return notes, nil
 }
 
-// listNotes returns all notes in notesDir, optionally filtered to those whose
-// frontmatter tags or inline tags include tagFilter. Pass an empty string to
-// return all notes.
-func listNotes(notesDir string, tagFilter string) ([]*Note, error) {
+// readNotesUnder reads the notes in notesDir that notesUnder keeps for dir.
+func readNotesUnder(notesDir string, dir string) ([]*Note, error) {
 	notes, err := readAllNotes(notesDir)
+	if err != nil {
+		return nil, err
+	}
+	return notesUnder(notes, dir)
+}
+
+// cleanPattern returns dir as a path.Match pattern relative to the notes
+// root, "" for the root itself, refusing a malformed glob.
+func cleanPattern(dir string) (string, error) {
+	pattern := strings.Trim(path.Clean("/"+dir), "/")
+	if _, err := path.Match(pattern, ""); err != nil {
+		return "", fmt.Errorf("bad path pattern %q: %w", dir, err)
+	}
+	return pattern, nil
+}
+
+// notesUnder keeps the notes that dir names, the way ls -R would show them:
+// a note's own path, or a folder holding it at any depth. dir is relative to
+// the notes dir, with or without a leading "/", and may be a path.Match glob
+// such as "/work/*-ideas", whose "*" stays within one folder. An empty dir
+// or "/" keeps every note.
+func notesUnder(notes []*Note, dir string) ([]*Note, error) {
+	pattern, err := cleanPattern(dir)
+	if err != nil || pattern == "" {
+		return notes, err
+	}
+	var kept []*Note
+	for _, n := range notes {
+		for p := n.Slug; p != "."; p = path.Dir(p) {
+			if ok, _ := path.Match(pattern, p); ok {
+				kept = append(kept, n)
+				break
+			}
+		}
+	}
+	return kept, nil
+}
+
+// Entry is one line of an ls listing: a note, or a folder (Dir, its path
+// without a trailing "/") holding Count notes at any depth.
+type Entry struct {
+	Note  *Note
+	Dir   string
+	Count int
+}
+
+// DirEntries lists what dir holds one level down, the way ls does: its
+// folders, sorted and each with how many notes it holds, then its notes in
+// the order given. dir is a folder ("" or "/" for the notes root), a note,
+// which lists just itself, or a glob as in notesUnder, which lists each match
+// the same way: a matching note, or what a matching folder holds.
+func DirEntries(notes []*Note, dir string) ([]Entry, error) {
+	pattern, err := cleanPattern(dir)
+	if err != nil {
+		return nil, err
+	}
+	depth := 0 // segments in pattern; a "*" never matches "/"
+	if pattern != "" {
+		depth = strings.Count(pattern, "/") + 1
+	}
+
+	counts := make(map[string]int)
+	var dirs []string
+	var files []Entry
+	for _, n := range notes {
+		segs := strings.Split(n.Slug, "/")
+		if len(segs) < depth {
+			continue
+		}
+		if ok, _ := path.Match(pattern, strings.Join(segs[:depth], "/")); depth > 0 && !ok {
+			continue
+		}
+		if len(segs) <= depth+1 { // the matched note itself, or a note directly inside
+			files = append(files, Entry{Note: n})
+			continue
+		}
+		d := strings.Join(segs[:depth+1], "/")
+		if counts[d] == 0 {
+			dirs = append(dirs, d)
+		}
+		counts[d]++
+	}
+
+	slices.Sort(dirs)
+	entries := make([]Entry, 0, len(dirs)+len(files))
+	for _, d := range dirs {
+		entries = append(entries, Entry{Dir: d, Count: counts[d]})
+	}
+	return append(entries, files...), nil
+}
+
+// listNotes returns the notes under dir (see notesUnder), optionally filtered
+// to those whose frontmatter tags or inline tags include tagFilter. Pass
+// empty strings to return all notes.
+func listNotes(notesDir string, tagFilter string, dir string) ([]*Note, error) {
+	notes, err := readNotesUnder(notesDir, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -323,10 +422,11 @@ func listNotes(notesDir string, tagFilter string) ([]*Note, error) {
 	return filtered, nil
 }
 
-// searchNotes performs a case-insensitive substring search across note titles
-// and bodies. All notes that contain query in either field are returned.
-func searchNotes(notesDir string, query string) ([]*Note, error) {
-	notes, err := readAllNotes(notesDir)
+// searchNotes performs a case-insensitive substring search across the titles
+// and bodies of the notes under dir. All notes that contain query in either
+// field are returned.
+func searchNotes(notesDir string, query string, dir string) ([]*Note, error) {
+	notes, err := readNotesUnder(notesDir, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -397,15 +497,17 @@ func findNote(notesDir string, slug string) (*Note, error) {
 	return n, nil
 }
 
-// allTasks aggregates all tasks from every note in notesDir. status filters by
-// "open" (Done == false), "done" (Done == true), or "all". tagFilter restricts
-// to tasks whose Tags contain the given value; pass "" to skip tag filtering.
+// allTasks aggregates the tasks from the notes under dir (see notesUnder; ""
+// for every note). status filters by "open" (Done == false), "done" (Done ==
+// true), or "all". tagFilter restricts to tasks whose Tags contain the given
+// value; pass "" to skip tag filtering.
 func allTasks(
 	notesDir string,
 	status string,
 	tagFilter string,
+	dir string,
 ) ([]Task, error) {
-	notes, err := readAllNotes(notesDir)
+	notes, err := readNotesUnder(notesDir, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +630,7 @@ func tasksByID(notesDir string) (map[string][]Task, error) {
 	if _, err := os.Stat(notesDir); errors.Is(err, fs.ErrNotExist) {
 		return map[string][]Task{}, nil
 	}
-	tasks, err := allTasks(notesDir, "all", "")
+	tasks, err := allTasks(notesDir, "all", "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -556,10 +658,11 @@ func OpenBlockers(
 // first whose description equals desc (case-insensitive), else the only one
 // containing it. When several contain it, the error lists their lines so the
 // caller can pick one with markTaskDoneAt. byID is nil to skip the blocker
-// check (force); see checkOff.
+// check (force); see checkOff, which also records reason.
 func markTaskDone(
 	notePath string,
 	desc string,
+	reason string,
 	byID map[string][]Task,
 ) error {
 	lower := strings.ToLower(strings.TrimSpace(desc))
@@ -594,7 +697,7 @@ func markTaskDone(
 	case 0:
 		return fmt.Errorf("no open task matching %q found in %s", desc, notePath)
 	case 1:
-		return checkOff(notePath, lines, candidates[0], byID)
+		return checkOff(notePath, lines, candidates[0], reason, byID)
 	}
 	nums := make([]string, len(candidates))
 	for i, idx := range candidates {
@@ -610,10 +713,12 @@ func markTaskDone(
 }
 
 // markTaskDoneAt marks done the open task on line (1-based, as Task.Line
-// reports it) of notePath. byID is nil to skip the blocker check (force).
+// reports it) of notePath, recording reason. byID is nil to skip the blocker
+// check (force).
 func markTaskDoneAt(
 	notePath string,
 	line int,
+	reason string,
 	byID map[string][]Task,
 ) error {
 	lines, err := readLines(notePath)
@@ -626,7 +731,7 @@ func markTaskDoneAt(
 	if tasks := ParseTasks(lines[line-1]); len(tasks) == 0 || tasks[0].Done {
 		return fmt.Errorf("line %d of %s is not an open task", line, notePath)
 	}
-	return checkOff(notePath, lines, line-1, byID)
+	return checkOff(notePath, lines, line-1, reason, byID)
 }
 
 // readLines reads notePath split into lines.
@@ -638,15 +743,27 @@ func readLines(notePath string) ([]string, error) {
 	return strings.Split(string(content), "\n"), nil
 }
 
-// checkOff marks the task on lines[i] done today, keeping its indentation,
-// and writes the file back. Every way of closing a task ends here, so this is
-// where an open blocker in byID refuses the close; a nil byID skips the check.
+// checkOff marks the task on lines[i] done today with reason, keeping its
+// indentation, and writes the file back. Every way of closing a task ends
+// here, so this is where a missing reason, or an open blocker in byID,
+// refuses the close; a nil byID skips the blocker check. reason must be one
+// line without "|" or a #tag, so it parses back as it was given.
 func checkOff(
 	notePath string,
 	lines []string,
 	i int,
+	reason string,
 	byID map[string][]Task,
 ) error {
+	reason = strings.TrimSpace(reason)
+	switch {
+	case reason == "":
+		return fmt.Errorf("a reason is required to close a task")
+	case strings.ContainsAny(reason, "|\r\n"):
+		return fmt.Errorf("reason must be one line without \"|\": %q", reason)
+	case len(ParseLineTags(reason)) > 0:
+		return fmt.Errorf("reason must not contain a #tag: %q", reason)
+	}
 	t := ParseTasks(lines[i])[0]
 	if open := OpenBlockers(t, byID); len(open) > 0 {
 		names := make([]string, len(open))
@@ -661,6 +778,7 @@ func checkOff(
 	}
 	t.Done = true
 	t.DoneDate = time.Now().Format("2006-01-02")
+	t.Reason = reason
 	indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
 	lines[i] = indent + FormatTask(t)
 	return os.WriteFile(notePath, []byte(strings.Join(lines, "\n")), 0o600)

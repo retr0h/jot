@@ -34,14 +34,15 @@ var (
 )
 
 var noteMvCmd = &cobra.Command{
-	Use:   "mv",
-	Short: "Rename a note and rewrite wikilinks",
-	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, _ []string) error {
+	Use:               "mv [path]",
+	Short:             "Rename a note and rewrite wikilinks",
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePaths,
+	RunE: func(c *cobra.Command, args []string) error {
 		out := c.OutOrStdout()
 		notesDir := NotesDir()
 
-		oldSlug := noteMvSlugFlag
+		oldSlug := noteArg(args, noteMvSlugFlag)
 		if oldSlug == "" {
 			picked, err := pickNote(notesDir)
 			if err != nil {

@@ -40,13 +40,16 @@ var (
 	taskListDoneSinceFlag string
 )
 
-// taskListCmd implements `jot task list [--status X] [--tag X] [--done-since D]`.
+// taskListCmd implements `jot task list [path] [--status X] [--tag X] [--done-since D]`.
+// path narrows it to the notes under a folder, a note, or a glob, as in note ls.
 var taskListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List tasks, optionally filtered by status, tag or done date",
-	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, _ []string) error {
+	Use:               "list [path]",
+	Short:             "List tasks, optionally filtered by path, status, tag or done date",
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePaths,
+	RunE: func(c *cobra.Command, args []string) error {
 		out := c.OutOrStdout()
+		dir := noteArg(args, "")
 
 		status := taskListStatusFlag
 		if taskListDoneSinceFlag != "" {
@@ -56,7 +59,7 @@ var taskListCmd = &cobra.Command{
 			status = "done"
 		}
 
-		tasks, err := svc.AllTasks(status, taskListTagFlag)
+		tasks, err := svc.AllTasks(status, taskListTagFlag, dir)
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
 		}
@@ -66,7 +69,7 @@ var taskListCmd = &cobra.Command{
 
 		if status == "open" {
 			todayStr := time.Now().Format("2006-01-02")
-			done, _ := svc.AllTasks("done", taskListTagFlag)
+			done, _ := svc.AllTasks("done", taskListTagFlag, dir)
 			for _, t := range done {
 				if t.DoneDate == todayStr {
 					tasks = append(tasks, t)
@@ -83,7 +86,7 @@ var taskListCmd = &cobra.Command{
 		weekStr := now.AddDate(0, 0, 7).Format("2006-01-02")
 
 		// Blockers and duplicate IDs can sit outside the filtered list.
-		all, err := svc.AllTasks("all", "")
+		all, err := svc.AllTasks("all", "", "")
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
 		}
@@ -114,6 +117,10 @@ var taskListCmd = &cobra.Command{
 					due = resolved.Format("2006-01-02")
 				}
 			}
+			desc := t.Description
+			if t.Reason != "" {
+				desc += " (" + t.Reason + ")"
+			}
 			tags := ""
 			if len(t.Tags) > 0 {
 				tags = "#" + strings.Join(t.Tags, " #")
@@ -122,10 +129,10 @@ var taskListCmd = &cobra.Command{
 				done:  t.Done,
 				id:    t.ID,
 				dup:   len(byID[t.ID]) > 1,
-				desc:  t.Description,
+				desc:  desc,
 				due:   due,
 				after: strings.Join(after, ","),
-				note:  t.NoteSlug,
+				note:  "/" + t.NoteSlug,
 				tags:  tags,
 			})
 		}

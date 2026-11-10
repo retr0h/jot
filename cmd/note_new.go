@@ -39,11 +39,11 @@ import (
 
 var (
 	noteSecureFlag   bool
-	noteUndatedFlag  bool
 	noteNewTitleFlag string
 )
 
-// noteNewCmd implements `jot note new --title <title> [--secure] [--undated]`.
+// noteNewCmd implements `jot note new --title <title> [--secure]`. The note is
+// named from the title alone.
 // A "/" in the title splits into subdir + title so
 // `jot note new --title "network/Switch Config"` stores the note under notes/network/.
 var noteNewCmd = &cobra.Command{
@@ -93,7 +93,7 @@ var noteNewCmd = &cobra.Command{
 					time.Now().Format("2006-01-02"),
 				) + content + "\n"
 			}
-			slug, _, err := svc.CreateNote(rawTitle, content, noteSecureFlag, noteUndatedFlag)
+			slug, _, err := svc.CreateNote(rawTitle, content, noteSecureFlag)
 			if err != nil {
 				return err
 			}
@@ -101,7 +101,7 @@ var noteNewCmd = &cobra.Command{
 			return nil
 		}
 
-		slug, notePath, err := svc.CreateNote(rawTitle, "", false, noteUndatedFlag)
+		slug, notePath, err := svc.CreateNote(rawTitle, "", false)
 		if err != nil {
 			return err
 		}
@@ -122,6 +122,4 @@ func init() {
 		StringVarP(&noteNewTitleFlag, "title", "t", "", "note title (use path/title for subdirs; omit for scratch)")
 	noteNewCmd.Flags().
 		BoolVarP(&noteSecureFlag, "secure", "x", false, "mark note as secure (sets secure: true in front-matter)")
-	noteNewCmd.Flags().
-		BoolVar(&noteUndatedFlag, "undated", false, "name the slug from the title alone, without today's date")
 }

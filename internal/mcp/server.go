@@ -44,20 +44,20 @@ const version = "0.1.0"
 // Concrete *jot.Service satisfies it structurally — the compiler verifies
 // at the assignment site in New().
 type Store interface {
-	ListNotes(tagFilter string) ([]*jot.Note, error)
-	SearchNotes(query string) ([]*jot.Note, error)
+	ListNotes(tagFilter string, dir string) ([]*jot.Note, error)
+	SearchNotes(query string, dir string) ([]*jot.Note, error)
 	FindNoteBySlug(slug string) (*jot.Note, error)
 	CatNote(slug string) (string, error)
-	CreateNote(title string, content string, secure bool, undated bool) (string, string, error)
+	CreateNote(title string, content string, secure bool) (string, string, error)
 	DeleteNote(slug string) error
 	EncryptNote(slug string) error
 	DecryptNote(slug string) error
 	RenameNote(oldSlug string, newTitle string) (string, error)
-	AllTasks(status string, tagFilter string) ([]jot.Task, error)
+	AllTasks(status string, tagFilter string, dir string) ([]jot.Task, error)
 	TasksDue(from time.Time, to time.Time) ([]jot.Task, error)
-	MarkTaskDone(slug string, desc string, force bool) error
-	MarkTaskDoneAt(slug string, line int, force bool) error
-	MarkTaskDoneByID(id string, force bool) error
+	MarkTaskDone(slug string, desc string, reason string, force bool) error
+	MarkTaskDoneAt(slug string, line int, reason string, force bool) error
+	MarkTaskDoneByID(id string, reason string, force bool) error
 	AddTask(slug string, title string, task jot.RawTask) (jot.RawTask, error)
 	AppendNote(slug string, text string) error
 	UpdateNote(slug string, content string) error
@@ -146,16 +146,19 @@ to the notes git repository, like the CLI's.
 ## Notes
 
 Notes are markdown files stored on disk. Each note has a slug (its path
-under the notes dir without .md, such as "done/2026-11-03"), a title, and
+under the notes dir without .md, such as "work/sensor-ideas"; a leading "/"
+is allowed, so "/work/sensor-ideas" is the same note), a title, and
 optional description and tags in YAML front-matter. A description is a
 one-line summary that list_notes and search_notes return, so keep one on
 notes you want to recall.
 
-- list_notes    list note summaries, optionally filtered by tag (full=true for bodies)
-- search_notes  search titles and bodies; summaries carry the first matching line
+- list_notes    list note summaries, optionally filtered by tag and path (full=true for bodies);
+                path is a folder ("/work"), a note, or a glob ("/work/*-ideas")
+- search_notes  search titles and bodies, optionally under a path; summaries carry
+                the first matching line
 - get_note      read the full markdown content of a note by slug
-- create_note   write a new note; "dir/Title" puts it in a folder; never overwrites;
-                undated=true names it without today's date, for memory topics
+- create_note   write a new note named from its title; "dir/Title" puts it in a
+                folder; never overwrites
 - append_note   add text to the end of an existing note
 - update_note   replace a note's body, or the whole file if content has front-matter
 - delete_note   remove a note file from disk
@@ -191,11 +194,13 @@ passphrase-free key in their jot.yaml ssh_keys list.
 Tasks are checkbox lines embedded in notes. They carry an id (t-xxxx), an
 optional due date, optional inline #tags, and optionally the ids of tasks
 that must be done first (after). Each listed task has its note_slug and file
-line. A task cannot be closed while a task it waits on is open, unless forced.
+line. Closing a task takes a reason, kept on its line as reason:. A task
+cannot be closed while a task it waits on is open, unless forced.
 
-- list_tasks    list tasks filtered by status (open/done/all), tag and done_since
+- list_tasks    list tasks filtered by status (open/done/all), tag, path and done_since
 - task_add      append a task to a note, creating the note if needed; returns its id
-- task_done     mark a task complete by id, or by line (from list_tasks) or description
+- task_done     mark a task complete, with a reason, by id, or by line (from
+                list_tasks) or description
 - tasks_due     list open tasks due today, this_week, or this_month
 
 ## Tags

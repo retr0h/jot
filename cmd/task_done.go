@@ -29,23 +29,24 @@ import (
 )
 
 var (
-	taskDoneSlugFlag  string
-	taskDoneDescFlag  string
-	taskDoneLineFlag  int
-	taskDoneForceFlag bool
+	taskDoneSlugFlag   string
+	taskDoneDescFlag   string
+	taskDoneLineFlag   int
+	taskDoneForceFlag  bool
+	taskDoneReasonFlag string
 )
 
 // taskDoneCmd implements `jot task done <id>`, `jot task done --slug <slug>
 // --desc <description>` and `jot task done --slug <slug> --line <n>`. Finds
 // the open task by its ID, its line, or its description (an exact match,
 // else the only one containing it, case-insensitive; several matches name
-// their lines), appends done:YYYY-MM-DD, and writes the file back. It refuses
-// while a task it waits on (after:) is open, unless --force. The service
-// commits it.
+// their lines), appends done:YYYY-MM-DD and the required --reason, and writes
+// the file back. It refuses while a task it waits on (after:) is open, unless
+// --force. The service commits it.
 var taskDoneCmd = &cobra.Command{
 	Use:     "done [id]",
 	Short:   "Mark a task as complete",
-	Example: "  jot task done t-7k2m\n  jot task done -s todo -D \"call Sam\"\n  jot task done t-7k2m --force",
+	Example: "  jot task done t-7k2m -r \"shipped in v1.2\"\n  jot task done -s todo -D \"call Sam\" -r \"left a voicemail\"\n  jot task done t-7k2m -r \"no longer needed\" --force",
 	Args:    cobra.MaximumNArgs(1),
 	RunE: func(c *cobra.Command, args []string) error {
 		out := c.OutOrStdout()
@@ -55,7 +56,7 @@ var taskDoneCmd = &cobra.Command{
 		desc := taskDoneDescFlag
 
 		if len(args) == 1 {
-			if err := svc.MarkTaskDoneByID(args[0], taskDoneForceFlag); err != nil { // commits too
+			if err := svc.MarkTaskDoneByID(args[0], taskDoneReasonFlag, taskDoneForceFlag); err != nil { // commits too
 				return err
 			}
 			cli.Print(out, cli.Success(out, "task marked done: "+args[0]))
@@ -66,7 +67,7 @@ var taskDoneCmd = &cobra.Command{
 			if slug == "" {
 				return fmt.Errorf("--line needs --slug")
 			}
-			if err := svc.MarkTaskDoneAt(slug, taskDoneLineFlag, taskDoneForceFlag); err != nil { // commits too
+			if err := svc.MarkTaskDoneAt(slug, taskDoneLineFlag, taskDoneReasonFlag, taskDoneForceFlag); err != nil { // commits too
 				return err
 			}
 			cli.Print(
@@ -89,7 +90,7 @@ var taskDoneCmd = &cobra.Command{
 			}
 		}
 
-		if err := svc.MarkTaskDone(slug, desc, taskDoneForceFlag); err != nil { // commits too
+		if err := svc.MarkTaskDone(slug, desc, taskDoneReasonFlag, taskDoneForceFlag); err != nil { // commits too
 			return err
 		}
 
@@ -110,4 +111,7 @@ func init() {
 		IntVarP(&taskDoneLineFlag, "line", "l", 0, "the task's 1-based line in the note file; needs --slug")
 	taskDoneCmd.Flags().
 		BoolVarP(&taskDoneForceFlag, "force", "f", false, "close it even though a task it waits on is still open")
+	taskDoneCmd.Flags().
+		StringVarP(&taskDoneReasonFlag, "reason", "r", "", "why the task is closed (required)")
+	_ = taskDoneCmd.MarkFlagRequired("reason")
 }

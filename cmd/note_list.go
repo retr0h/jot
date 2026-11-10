@@ -27,68 +27,123 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/retr0h/jot/internal/cli"
+	"github.com/retr0h/jot/internal/jot"
 )
 
-var noteListTagFlag string
+var (
+	noteListTagFlag       string
+	noteListRecursiveFlag bool
+)
 
-// noteListCmd implements `jot note list [--tag X]`.
+// noteListCmd implements `jot note ls [path] [-R] [--tag X]`. Like ls, it
+// lists one level of a folder from the notes root ("/work"): its folders,
+// each with how many notes it holds, then its notes. -R lists every note
+// under it instead. path may also be a note, or a glob ("/work/*-ideas");
+// quote a glob so the shell leaves it alone.
 var noteListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List notes, optionally filtered by tag",
-	Args:  cobra.NoArgs,
-	RunE: func(c *cobra.Command, _ []string) error {
+	Use:               "list [path]",
+	Aliases:           []string{"ls"},
+	Short:             "List the folders and notes in a path, optionally filtered by tag",
+	Example:           "  jot note ls\n  jot note ls /work\n  jot note ls -R /work\n  jot note ls '/work/*-ideas' -T ops",
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completePaths,
+	RunE: func(c *cobra.Command, args []string) error {
 		out := c.OutOrStdout()
+		dir := noteArg(args, "")
 
-		notes, err := svc.ListNotes(noteListTagFlag)
-		if err != nil {
-			return fmt.Errorf("list notes: %w", err)
+		var entries []jot.Entry
+		if noteListRecursiveFlag {
+			notes, err := svc.ListNotes(noteListTagFlag, dir)
+			if err != nil {
+				return fmt.Errorf("list notes: %w", err)
+			}
+			for _, n := range notes {
+				entries = append(entries, jot.Entry{Note: n})
+			}
+		} else {
+			notes, err := svc.ListNotes(noteListTagFlag, "")
+			if err != nil {
+				return fmt.Errorf("list notes: %w", err)
+			}
+			if entries, err = jot.DirEntries(notes, dir); err != nil {
+				return fmt.Errorf("list notes: %w", err)
+			}
 		}
 
-		if len(notes) == 0 {
+		if len(entries) == 0 {
+			if dir != "" {
+				return fmt.Errorf("no notes match %s", dir)
+			}
 			return nil
 		}
 
-		dateW, titleW, slugW := len("CREATED"), len("TITLE"), len("SLUG")
-		for _, n := range notes {
-			if len(n.Created) > dateW {
-				dateW = len(n.Created)
+		type row struct {
+			created, title, where, tags string
+			folder, secure              bool
+		}
+		rows := make([]row, 0, len(entries))
+		for _, e := range entries {
+			if e.Note == nil {
+				noun := "notes"
+				if e.Count == 1 {
+					noun = "note"
+				}
+				rows = append(rows, row{
+					created: "-",
+					title:   fmt.Sprintf("%d %s", e.Count, noun),
+					where:   "/" + e.Dir + "/",
+					tags:    "-",
+					folder:  true,
+				})
+				continue
 			}
-			if len(n.Title) > titleW {
-				titleW = len(n.Title)
+			n := e.Note
+			tags := "-"
+			if len(n.Tags) > 0 {
+				tags = "#" + strings.Join(n.Tags, " #")
 			}
-			if len(n.Slug) > slugW {
-				slugW = len(n.Slug)
-			}
+			rows = append(rows, row{
+				created: n.Created,
+				title:   n.Title,
+				where:   "/" + n.Slug,
+				tags:    tags,
+				secure:  n.Secure,
+			})
 		}
 
-		hdr := cli.Pad(
-			"CREATED",
-			dateW+2,
-		) + cli.Pad(
-			"TITLE",
-			titleW+2,
-		) + cli.Pad(
-			"SLUG",
-			slugW+2,
-		) + "TAGS"
-		cli.Printf(out, "%s\n", cli.Mute(out, hdr))
+		dateW, titleW, whereW := len("CREATED"), len("TITLE"), len("PATH")
+		for _, r := range rows {
+			dateW = max(dateW, len(r.created))
+			titleW = max(titleW, len(r.title))
+			whereW = max(whereW, len(r.where))
+		}
 
-		for _, n := range notes {
-			date := cli.Info(out, cli.Pad(n.Created, dateW+2))
-			title := cli.Accent(out, cli.Pad(n.Title, titleW+2))
-			slug := cli.Mute(out, cli.Pad(n.Slug, slugW+2))
+		cli.Printf(out, "%s\n", cli.Mute(out, cli.Pad("CREATED", dateW+2)+
+			cli.Pad("TITLE", titleW+2)+
+			cli.Pad("PATH", whereW+2)+
+			"TAGS"))
 
-			tags := cli.Mute(out, "-")
-			if len(n.Tags) > 0 {
-				tags = cli.Tag(out, "#"+strings.Join(n.Tags, " #"))
+		for _, r := range rows {
+			date := cli.Info(out, cli.Pad(r.created, dateW+2))
+			title := cli.Accent(out, cli.Pad(r.title, titleW+2))
+			where := cli.Mute(out, cli.Pad(r.where, whereW+2))
+			if r.folder {
+				date = cli.Mute(out, cli.Pad(r.created, dateW+2))
+				title = cli.Mute(out, cli.Pad(r.title, titleW+2))
+				where = cli.Info(out, cli.Pad(r.where, whereW+2))
+			}
+
+			tags := cli.Mute(out, r.tags)
+			if r.tags != "-" {
+				tags = cli.Tag(out, r.tags)
 			}
 
 			secure := ""
-			if n.Secure {
+			if r.secure {
 				secure = "  " + cli.Err(out, "[secure]")
 			}
 
-			cli.Printf(out, "%s%s%s%s%s\n", date, title, slug, tags, secure)
+			cli.Printf(out, "%s%s%s%s%s\n", date, title, where, tags, secure)
 		}
 
 		return nil
@@ -98,4 +153,6 @@ var noteListCmd = &cobra.Command{
 func init() {
 	noteListCmd.Flags().
 		StringVarP(&noteListTagFlag, "tag", "T", "", "filter notes by tag/label name")
+	noteListCmd.Flags().
+		BoolVarP(&noteListRecursiveFlag, "recursive", "R", false, "list every note under the path, not one level")
 }

@@ -68,6 +68,16 @@ func (s *Service) write(fn func() (string, error)) error {
 	})
 }
 
+// cleanOr returns slug in canonical form for a commit subject, so
+// "/work/todo" and "work/todo" commit alike; a slug CleanSlug refuses is
+// kept as given, since the write it names fails anyway.
+func cleanOr(slug string) string {
+	if clean, err := CleanSlug(slug); err == nil {
+		return clean
+	}
+	return slug
+}
+
 // CatNote returns the body of a note by slug, transparently decrypting
 // from kvlt if the note is marked secure.
 func (s *Service) CatNote(slug string) (string, error) {
@@ -92,7 +102,7 @@ func (s *Service) CatNote(slug string) (string, error) {
 // plus secure: true.
 func (s *Service) EncryptNote(slug string) error {
 	return s.write(func() (string, error) {
-		return "note(secure): encrypt " + slug, s.encryptNote(slug)
+		return "note(secure): encrypt " + cleanOr(slug), s.encryptNote(slug)
 	})
 }
 
@@ -127,7 +137,7 @@ func (s *Service) encryptNote(slug string) error {
 // vault.
 func (s *Service) DecryptNote(slug string) error {
 	return s.write(func() (string, error) {
-		return "note(secure): decrypt " + slug, s.decryptNote(slug)
+		return "note(secure): decrypt " + cleanOr(slug), s.decryptNote(slug)
 	})
 }
 
@@ -190,7 +200,7 @@ func (s *Service) AppendNote(
 		return fmt.Errorf("text to append is required")
 	}
 	return s.write(func() (string, error) {
-		return "note: append to " + slug, s.rewriteBody(slug, func(body string) string {
+		return "note: append to " + cleanOr(slug), s.rewriteBody(slug, func(body string) string {
 			if body != "" && !strings.HasSuffix(body, "\n") {
 				body += "\n"
 			}
@@ -208,7 +218,7 @@ func (s *Service) UpdateNote(
 	content string,
 ) error {
 	return s.write(func() (string, error) {
-		return "note: update " + slug, s.updateNote(slug, content)
+		return "note: update " + cleanOr(slug), s.updateNote(slug, content)
 	})
 }
 
@@ -277,7 +287,7 @@ func (s *Service) RenameNote(
 	err := s.write(func() (string, error) {
 		var err error
 		newSlug, err = s.renameNote(oldSlug, newTitle)
-		return fmt.Sprintf("note: rename %s -> %s", oldSlug, newSlug), err
+		return fmt.Sprintf("note: rename %s -> %s", cleanOr(oldSlug), newSlug), err
 	})
 	return newSlug, err
 }
@@ -290,9 +300,7 @@ func (s *Service) renameNote(
 	if err != nil {
 		return "", err
 	}
-	// A dated note gets today's date with its new name; an undated one,
-	// such as a memory topic, stays undated.
-	newSlug, err := noteName(newTitle, datedRe.MatchString(path.Base(oldSlug)))
+	newSlug, err := noteName(newTitle)
 	if err != nil {
 		return "", err
 	}
@@ -376,14 +384,16 @@ func nameTaken(
 	return taken
 }
 
-// ListNotes returns all notes, optionally filtered by tag.
-func (s *Service) ListNotes(tagFilter string) ([]*Note, error) {
-	return listNotes(s.NotesDir, tagFilter)
+// ListNotes returns all notes, optionally filtered by tag and to those under
+// dir (see notesUnder).
+func (s *Service) ListNotes(tagFilter string, dir string) ([]*Note, error) {
+	return listNotes(s.NotesDir, tagFilter, dir)
 }
 
-// SearchNotes performs a case-insensitive substring search.
-func (s *Service) SearchNotes(query string) ([]*Note, error) {
-	return searchNotes(s.NotesDir, query)
+// SearchNotes performs a case-insensitive substring search over the notes
+// under dir (see notesUnder).
+func (s *Service) SearchNotes(query string, dir string) ([]*Note, error) {
+	return searchNotes(s.NotesDir, query, dir)
 }
 
 // FindNoteBySlug reads and returns the note at notesDir/slug.md.
@@ -391,12 +401,14 @@ func (s *Service) FindNoteBySlug(slug string) (*Note, error) {
 	return findNote(s.NotesDir, slug)
 }
 
-// AllTasks aggregates all tasks, filtered by status and tag.
+// AllTasks aggregates all tasks, filtered by status, tag, and the notes under
+// dir (see notesUnder).
 func (s *Service) AllTasks(
 	status string,
 	tagFilter string,
+	dir string,
 ) ([]Task, error) {
-	return allTasks(s.NotesDir, status, tagFilter)
+	return allTasks(s.NotesDir, status, tagFilter, dir)
 }
 
 // TasksDue returns open tasks due within [from, to].
@@ -413,11 +425,13 @@ func (s *Service) AllTags() ([]string, error) {
 }
 
 // MarkTaskDone marks done the open task in the given note that desc names:
-// an exact description match, else the only one containing desc. It refuses
-// a task with an open blocker unless force is set.
+// an exact description match, else the only one containing desc, recording
+// why it closed (see checkOff). It refuses a task with an open blocker
+// unless force is set.
 func (s *Service) MarkTaskDone(
 	slug string,
 	desc string,
+	reason string,
 	force bool,
 ) error {
 	_, notePath, err := slugPath(s.NotesDir, slug)
@@ -425,21 +439,22 @@ func (s *Service) MarkTaskDone(
 		return err
 	}
 	return s.write(func() (string, error) {
-		subject := fmt.Sprintf("task: done %q in %s", desc, slug)
+		subject := fmt.Sprintf("task: done %q in %s", desc, cleanOr(slug))
 		byID, err := s.blockerIndex(force)
 		if err != nil {
 			return subject, err
 		}
-		return subject, markTaskDone(notePath, desc, byID)
+		return subject, markTaskDone(notePath, desc, reason, byID)
 	})
 }
 
 // MarkTaskDoneAt marks done the open task on line (1-based, as Task.Line
-// reports it) of the given note. It refuses a task with an open blocker
-// unless force is set.
+// reports it) of the given note, recording why it closed (see checkOff). It
+// refuses a task with an open blocker unless force is set.
 func (s *Service) MarkTaskDoneAt(
 	slug string,
 	line int,
+	reason string,
 	force bool,
 ) error {
 	_, notePath, err := slugPath(s.NotesDir, slug)
@@ -447,19 +462,21 @@ func (s *Service) MarkTaskDoneAt(
 		return err
 	}
 	return s.write(func() (string, error) {
-		subject := fmt.Sprintf("task: done line %d in %s", line, slug)
+		subject := fmt.Sprintf("task: done line %d in %s", line, cleanOr(slug))
 		byID, err := s.blockerIndex(force)
 		if err != nil {
 			return subject, err
 		}
-		return subject, markTaskDoneAt(notePath, line, byID)
+		return subject, markTaskDoneAt(notePath, line, reason, byID)
 	})
 }
 
 // MarkTaskDoneByID marks done the open task carrying id, in whichever note
-// holds it. It refuses a task with an open blocker unless force is set.
+// holds it, recording why it closed (see checkOff). It refuses a task with
+// an open blocker unless force is set.
 func (s *Service) MarkTaskDoneByID(
 	id string,
+	reason string,
 	force bool,
 ) error {
 	id = strings.ToLower(strings.TrimSpace(id))
@@ -487,7 +504,12 @@ func (s *Service) MarkTaskDoneByID(
 		if force {
 			byID = nil
 		}
-		return subject + " in " + found[0].NoteSlug, markTaskDoneAt(notePath, found[0].Line, byID)
+		return subject + " in " + found[0].NoteSlug, markTaskDoneAt(
+			notePath,
+			found[0].Line,
+			reason,
+			byID,
+		)
 	})
 }
 
@@ -511,7 +533,11 @@ func (s *Service) AddTask(
 ) (RawTask, error) {
 	var added RawTask
 	err := s.write(func() (string, error) {
-		subject := fmt.Sprintf("task: add %q to %s", strings.TrimSpace(task.Description), slug)
+		subject := fmt.Sprintf(
+			"task: add %q to %s",
+			strings.TrimSpace(task.Description),
+			cleanOr(slug),
+		)
 		var err error
 		added, err = addTask(s.NotesDir, slug, title, task)
 		return subject, err
@@ -530,9 +556,8 @@ func (s *Service) ReadAllNotes() ([]*Note, error) {
 }
 
 // CreateNote creates a new note with the given title and content. A title
-// of "dir/Title" creates the note in that folder. The slug starts with
-// today's date unless undated is true, for long-lived notes such as memory
-// topics. Content gets jot's title, tags and created fields where its
+// of "dir/Title" creates the note in that folder, named from the title
+// alone. Content gets jot's title, tags and created fields where its
 // front-matter lacks them. If secure is true, the body is stored in kvlt
 // and the file contains only frontmatter. It refuses to overwrite an
 // existing note. Returns the slug and file path.
@@ -540,12 +565,11 @@ func (s *Service) CreateNote(
 	title string,
 	content string,
 	secure bool,
-	undated bool,
 ) (string, string, error) {
 	var slug, notePath string
 	err := s.write(func() (string, error) {
 		var err error
-		slug, notePath, err = s.createNote(title, content, secure, undated)
+		slug, notePath, err = s.createNote(title, content, secure)
 		scope := "note"
 		if secure {
 			scope = "note(secure)"
@@ -559,13 +583,12 @@ func (s *Service) createNote(
 	title string,
 	content string,
 	secure bool,
-	undated bool,
 ) (string, string, error) {
 	dir := ""
 	if i := strings.LastIndex(title, "/"); i >= 0 {
 		dir, title = title[:i], title[i+1:]
 	}
-	name, err := noteName(title, !undated)
+	name, err := noteName(title)
 	if err != nil {
 		return "", "", err
 	}
@@ -612,7 +635,9 @@ func (s *Service) createNote(
 
 // DeleteNote removes the note file for the given slug.
 func (s *Service) DeleteNote(slug string) error {
-	return s.write(func() (string, error) { return "note: delete " + slug, s.deleteNote(slug) })
+	return s.write(
+		func() (string, error) { return "note: delete " + cleanOr(slug), s.deleteNote(slug) },
+	)
 }
 
 func (s *Service) deleteNote(slug string) error {

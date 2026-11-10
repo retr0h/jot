@@ -44,36 +44,58 @@ jot init
 jot note new --title "Sprint Planning"
 jot note new --title "network/Switch Config"
 jot note new --title "secrets/API Keys" --secure
-jot note new --title "memory/Projects" --undated
+jot note new --title "memory/Projects"
 cat meeting.md | jot note new --title "Meeting Notes"
 echo "secret stuff" | jot note new --title "Credentials" --secure
-jot note list
+jot note ls
+jot note ls /network
+jot note ls -R
+jot note ls '/network/*-config'
+jot note cat /network/switch-config
 jot note search --query "kubernetes"
-jot note append --slug todo --text "Sam prefers mornings"
+jot note append /todo --text "Sam prefers mornings"
 jot task list
+jot task list /network
 jot task list --done-since 2026-11-01
 jot task add --slug todo --desc "call Sam" --due friday --tag work
-jot task done --slug todo --line 9
+jot task done t-7k2m --reason "called, Sam is in"
+jot task done --slug todo --line 9 -r "no longer needed"
 jot task due
 jot git log
 ```
 
+### 📁 Paths
+
+Notes live in folders under the notes dir, and jot treats that dir as `/`. Like
+`ls`, `jot note ls /work` lists one level: the folders in `work/`, each with how
+many notes it holds, then the notes directly in it. `jot note ls -R` lists every
+note under a path, at any depth. `cat`, `edit`, `mv`, `append`, `encrypt` and
+`decrypt` take a note's path, and `jot task list /work` shows the tasks in every
+note under `work/`. A note is named from its title, so
+`jot note new --title "work/Sensor Ideas"` is `/work/sensor-ideas`.
+
+Globs follow `ls`: `*` stays inside one folder, and a glob that matches a folder
+lists what's in it. Quote a glob, `jot note ls '/work/*-ideas'`, or your shell
+expands it against your real `/` first. In zsh, `alias jot='noglob jot'` lets
+you skip the quotes. `jot completion zsh` (or `bash`, `fish`) completes paths
+from the notes root.
+
 ## ✨ Features
 
-| Feature              | Description                                             |
-| -------------------- | ------------------------------------------------------- |
-| Markdown notes       | `.md` files with YAML frontmatter, edited in nvim       |
-| `[[wiki links]]`     | Cross-reference notes by slug; obsidian.nvim navigates  |
-| Checkbox tasks       | `- [ ] desc \| due:date #tag` with due dates + tags     |
-| Task dependencies    | `after:t-xxxx` blocks closing a task until that one is  |
-| Git-backed           | Every edit auto-commits; `jot git log/diff/show`        |
-| Secure vaults        | `--secure` encrypts notes via [kvlt] (age + SSH keys)   |
-| Full-text search     | Concurrent goroutine file scan — no index, no database  |
-| MCP server           | 16 tools over stdio for Claude / Codex / any MCP client |
-| Agent memory         | One git-backed memory shared by all your agents         |
-| Subdirectory nesting | `jot note new --title "ops/runbook"` for organization   |
-| nvim plugin          | Ships `lua/jot/` — auto-configures obsidian.nvim        |
-| Max Headroom palette | Magenta `#c678dd` accent across CLI, installer, nvim    |
+| Feature              | Description                                               |
+| -------------------- | --------------------------------------------------------- |
+| Markdown notes       | `.md` files with YAML frontmatter, edited in nvim         |
+| `[[wiki links]]`     | Cross-reference notes by slug; obsidian.nvim navigates    |
+| Checkbox tasks       | `- [ ] desc \| due:date #tag`; closing one takes a reason |
+| Task dependencies    | `after:t-xxxx` blocks closing a task until that one is    |
+| Git-backed           | Every edit auto-commits; `jot git log/diff/show`          |
+| Secure vaults        | `--secure` encrypts notes via [kvlt] (age + SSH keys)     |
+| Full-text search     | Concurrent goroutine file scan — no index, no database    |
+| MCP server           | 16 tools over stdio for Claude / Codex / any MCP client   |
+| Agent memory         | One git-backed memory shared by all your agents           |
+| Folders as paths     | `jot note ls /ops`; paths start at the notes root         |
+| nvim plugin          | Ships `lua/jot/` — auto-configures obsidian.nvim          |
+| Max Headroom palette | Magenta `#c678dd` accent across CLI, installer, nvim      |
 
 ## 📝 Note Format
 
@@ -90,7 +112,7 @@ Discussed the [[deployment-runbook]] and next steps.
 
 - [ ] follow up on infra ticket | due:friday #work #ops
 - [ ] review PR before EOD #work
-- [x] Send meeting summary | done:2026-05-14
+- [x] Send meeting summary | done:2026-05-14 | reason:sent to the team
 - [ ] Update [[deployment-runbook]]
 ```
 
@@ -149,33 +171,33 @@ Auto-discovered by Claude Code via [`.mcp.json`](.mcp.json):
 }
 ```
 
-| Tool           | Description                                                                 |
-| -------------- | --------------------------------------------------------------------------- |
-| `list_notes`   | Note summaries (title, description, tags, dates); `full` adds bodies        |
-| `get_note`     | Read full markdown by slug (transparently decrypts secure notes)            |
-| `create_note`  | Create a note, in a folder with `dir/Title`; `undated` drops the slug date  |
-| `append_note`  | Add text to the end of an existing note                                     |
-| `update_note`  | Replace a note's body, or the whole file when content has frontmatter       |
-| `delete_note`  | Remove a note file                                                          |
-| `search_notes` | Full-text search; summaries carry the first matching line                   |
-| `rename_note`  | Rename a note in its folder, dated or not as before, and fix `[[links]]`    |
-| `encrypt_note` | Encrypt an existing note via kvlt, keeping every frontmatter field          |
-| `decrypt_note` | Decrypt a secure note back to plaintext                                     |
-| `history`      | Commits newest first with the notes each changed, filtered by note and time |
-| `list_tasks`   | Tasks filtered by status, tag and done date, with each task's file line     |
-| `task_add`     | Append a task to a note, creating the note if needed                        |
-| `task_done`    | Mark a task complete by line or description                                 |
-| `tasks_due`    | Tasks due in a date range                                                   |
-| `list_tags`    | All tags across notes                                                       |
+| Tool           | Description                                                                     |
+| -------------- | ------------------------------------------------------------------------------- |
+| `list_notes`   | Note summaries, by tag and by `path` (folder, note or glob); `full` adds bodies |
+| `get_note`     | Read full markdown by slug (transparently decrypts secure notes)                |
+| `create_note`  | Create a note named from its title, in a folder with `dir/Title`                |
+| `append_note`  | Add text to the end of an existing note                                         |
+| `update_note`  | Replace a note's body, or the whole file when content has frontmatter           |
+| `delete_note`  | Remove a note file                                                              |
+| `search_notes` | Full-text search, optionally under a `path`; summaries carry the matching line  |
+| `rename_note`  | Rename a note in its folder from a new title, and fix `[[links]]`               |
+| `encrypt_note` | Encrypt an existing note via kvlt, keeping every frontmatter field              |
+| `decrypt_note` | Decrypt a secure note back to plaintext                                         |
+| `history`      | Commits newest first with the notes each changed, filtered by note and time     |
+| `list_tasks`   | Tasks filtered by status, tag, `path` and done date, with each task's line      |
+| `task_add`     | Append a task to a note, creating the note if needed                            |
+| `task_done`    | Mark a task complete, with a required `reason`, by id, line or description      |
+| `tasks_due`    | Tasks due in a date range                                                       |
+| `list_tags`    | All tags across notes                                                           |
 
 Every write tool commits to the notes repo, like the CLI, and writers from every
 jot process take the same lock, so agents sharing a notes dir do not lose each
 other's edits. The lock does not cover edits made in your own editor. A note's
-slug is its path under the notes dir without `.md`, such as `done/2026-11-03`.
-Give notes a one-line `description:` in frontmatter so agents can recall them
-from `list_notes` and `search_notes` without reading bodies. Secure notes over
-MCP require passphrase-free SSH keys configured in `ssh_keys` — there is no TTY
-for interactive prompts.
+slug is its path under the notes dir without `.md`, such as `work/sensor-ideas`;
+a leading `/` is allowed. Give notes a one-line `description:` in frontmatter so
+agents can recall them from `list_notes` and `search_notes` without reading
+bodies. Secure notes over MCP require passphrase-free SSH keys configured in
+`ssh_keys` — there is no TTY for interactive prompts.
 
 ### 🧠 Agent memory
 
@@ -202,8 +224,7 @@ Then tell the agents when to use it, in `~/.claude/CLAUDE.md` and
 - jot (MCP server `jot`) is the memory shared across agents. Before a task,
   `search_notes` for its topic. Save lasting facts, decisions and preferences
   with `append_note` to the matching note under `memory/`, or `create_note`
-  `memory/<Topic>` with `undated: true` and a one-line `description:` when
-  none fits
+  `memory/<Topic>` with a one-line `description:` when none fits
 - secrets go only in a secure note's body, never in a title, description or tag
 ```
 

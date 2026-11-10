@@ -41,6 +41,7 @@ type RawTask struct {
 	ID          string // stable "t-xxxx" handle other tasks point at
 	DueDate     string
 	DoneDate    string
+	Reason      string   // why it was closed
 	After       []string // IDs of tasks that must be done before this one
 	Labels      []string
 	Line        int
@@ -76,7 +77,7 @@ func NewTaskID(taken map[string]struct{}) string {
 // Plain checkboxes without metadata are also captured.
 //
 // Format: - [ ] description | due:friday #tag1 #tag2
-//   - [x] description | due:2026-05-16 | done:2026-05-16 #tag1
+//   - [x] description | due:2026-05-16 | done:2026-05-16 | reason:shipped #tag1
 func ParseTasks(content string) []RawTask {
 	lines := strings.Split(content, "\n")
 	tasks := make([]RawTask, 0, len(lines))
@@ -125,6 +126,8 @@ func parseTaskContent(content string) RawTask {
 			task.DueDate = strings.TrimPrefix(field, "due:")
 		case strings.HasPrefix(field, "done:"):
 			task.DoneDate = strings.TrimPrefix(field, "done:")
+		case strings.HasPrefix(field, "reason:"):
+			task.Reason = strings.TrimSpace(strings.TrimPrefix(field, "reason:"))
 		}
 	}
 
@@ -134,7 +137,7 @@ func parseTaskContent(content string) RawTask {
 // FormatTask produces a complete checkbox line from a RawTask:
 //
 //   - [ ] description | due:friday #tag1 #tag2
-//   - [x] description | due:friday | done:2026-05-17 #tag1 #tag2
+//   - [x] description | due:friday | done:2026-05-17 | reason:shipped #tag1 #tag2
 func FormatTask(task RawTask) string {
 	check := " "
 	if task.Done {
@@ -153,6 +156,9 @@ func FormatTask(task RawTask) string {
 	}
 	if task.DoneDate != "" {
 		parts = append(parts, "done:"+task.DoneDate)
+	}
+	if task.Reason != "" {
+		parts = append(parts, "reason:"+task.Reason)
 	}
 
 	result := "- [" + check + "] " + strings.Join(parts, " | ")
